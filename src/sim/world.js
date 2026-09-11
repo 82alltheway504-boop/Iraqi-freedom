@@ -26,6 +26,7 @@ export class Player {
     this.allies = new Set([index]);
     this.powerCooldowns = {};
     this.unlocked = new Set();
+    this.freeBuilds = {};        // mission-granted structures that cost nothing
     this.lost = 0;
     this.killed = 0;
     this.defeated = false;
@@ -269,7 +270,8 @@ export class World {
   canBuildStructure(owner, defId) {
     const d = defOf(defId);
     if (!d) return false;
-    if (!this.buildings.some((b) => b.alive && b.built && b.owner === owner && b.def.isHQ)) return false;
+    if (!d.isHQ &&
+        !this.buildings.some((b) => b.alive && b.built && b.owner === owner && b.def.isHQ)) return false;
     if (d.requires) for (const r of d.requires) if (!this.hasBuilding(owner, r)) return false;
     return true;
   }
@@ -347,12 +349,15 @@ export class World {
         if (cost === Infinity) return { ok: false, reason: 'impassable ground' };
       }
     }
-    // Must sit inside the build radius of an HQ.
+    // Everything must sit inside an HQ's build radius — except an HQ itself,
+    // which is the thing that establishes one.
     const cx = (tx + d.size[0] / 2) * TILE, cy = (ty + d.size[1] / 2) * TILE;
-    const near = this.buildings.some((b) =>
-      b.alive && b.built && b.owner === owner && b.def.buildRadius &&
-      dist(cx, cy, b.cx, b.cy) <= b.def.buildRadius * TILE);
-    if (!near) return { ok: false, reason: 'outside build radius' };
+    if (!d.isHQ) {
+      const near = this.buildings.some((b) =>
+        b.alive && b.built && b.owner === owner && b.def.buildRadius &&
+        dist(cx, cy, b.cx, b.cy) <= b.def.buildRadius * TILE);
+      if (!near) return { ok: false, reason: 'outside build radius' };
+    }
     // Don't allow building on top of units.
     let clear = true;
     this.queryRadius(cx, cy, Math.max(d.size[0], d.size[1]) * TILE * 0.6, (e) => {
@@ -365,14 +370,23 @@ export class World {
     return { ok: true };
   }
 
+  /** Cost of a structure for this player, honouring mission-granted free builds. */
+  structureCost(owner, defId) {
+    const p = this.players[owner];
+    if (p && p.freeBuilds && p.freeBuilds[defId] > 0) return 0;
+    return defOf(defId).cost;
+  }
+
   startStructure(owner, defId, tx, ty) {
     const d = defOf(defId);
     const p = this.players[owner];
     const check = this.canPlace(owner, defId, tx, ty);
     if (!check.ok) return { ok: false, reason: check.reason };
-    if (p.supply < d.cost) return { ok: false, reason: 'insufficient supply' };
-    p.supply -= d.cost;
-    p.spent += d.cost;
+    const cost = this.structureCost(owner, defId);
+    if (p.supply < cost) return { ok: false, reason: 'insufficient supply' };
+    if (cost === 0 && p.freeBuilds) p.freeBuilds[defId]--;
+    p.supply -= cost;
+    p.spent += cost;
     this.placeBuilding(defId, owner, tx, ty, { constructing: true });
     return { ok: true };
   }
