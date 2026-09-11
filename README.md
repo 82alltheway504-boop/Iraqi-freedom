@@ -99,6 +99,7 @@ The simulation deliberately contains no DOM access, so all of it runs headless.
 ```bash
 npm test             # 24 simulation checks + a full mission playthrough
 npm run test:browser # 5 viewports, the portrait nudge, and offline play
+npm run test:touch   # real touch gestures: tap, drag, long press, pinch
 npm run perf         # measures real frame rate in Chromium at iPhone size
 npm run shots        # captures screenshots of the running game
 npm run balance      # regenerates the balance tables in docs/DESIGN.md
@@ -114,7 +115,9 @@ capture, fog, and then plays mission 01 from the opening recon move through to
 victory and defeat. `npm run test:browser` drives the real game in Chromium
 across five viewports from an iPhone SE to a desktop, checks the order bar never
 ends up underneath the production rail, and confirms the game still loads and
-plays with the network switched off.
+plays with the network switched off. `npm run test:touch` fires real pointer
+events at the canvas to verify every gesture: tap to select, tap to order, drag
+to pan, long press to attack-move, pinch to zoom, and tapping a palette card.
 
 ## Performance
 

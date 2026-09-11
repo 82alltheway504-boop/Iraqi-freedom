@@ -13,7 +13,8 @@
     "shots": "node tools/shot.mjs",
     "perf": "node tools/perf.mjs",
     "balance": "node tools/balance.mjs",
-    "icons": "node tools/icons.mjs"
+    "icons": "node tools/icons.mjs",
+    "test:touch": "node tools/touchtest.mjs"
   },
   "engines": {
     "node": ">=18"

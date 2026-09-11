@@ -69,7 +69,10 @@ export class Input {
   get shift() { return this.keys.has('shift'); }
 
   _down(e) {
-    this.el.setPointerCapture?.(e.pointerId);
+    // Pointer capture is a nicety — it keeps a drag alive if the finger leaves
+    // the canvas. It can throw (the pointer may already be gone), and letting
+    // that abort the handler would wedge input entirely, so it is never fatal.
+    try { this.el.setPointerCapture?.(e.pointerId); } catch { /* not capturable */ }
     const p = this._local(e);
     const rec = {
       id: e.pointerId, x: p.x, y: p.y, x0: p.x, y0: p.y,
@@ -182,7 +185,7 @@ export class Input {
     this._clearLong();
     if (this.pointers.size < 2) this.pinch = null;
     if (!rec) return;
-    this.el.releasePointerCapture?.(e.pointerId);
+    try { this.el.releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
 
     const dur = performance.now() - rec.t0;
 
