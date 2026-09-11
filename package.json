@@ -14,7 +14,9 @@
     "perf": "node tools/perf.mjs",
     "balance": "node tools/balance.mjs",
     "icons": "node tools/icons.mjs",
-    "test:touch": "node tools/touchtest.mjs"
+    "test:touch": "node tools/touchtest.mjs",
+    "test:pwa": "node tools/pwatest.mjs",
+    "build:artifact": "node tools/build-artifact.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -22,6 +22,21 @@ Any static file server will do — there is no build step. Open it on a phone,
 turn the device sideways, and add it to your home screen to run it fullscreen
 as an installed app.
 
+### Installing it on a phone
+
+The app installs from any HTTPS host. `.github/workflows/pages.yml` deploys it
+to GitHub Pages on every push, including a guard that fails the build if an
+absolute path ever creeps in — a Pages project site serves from `/<repo>/`, so
+a leading-slash path would 404 there while working perfectly in local testing.
+`npm run test:pwa` verifies the whole install path from a subdirectory: the
+manifest the browser actually parsed, the service worker's registered scope,
+every icon iOS and Android ask for, and that the game still plays with the
+network switched off.
+
+Note that a service worker needs a secure context. Over HTTPS or on
+`localhost` you get offline play; over a plain `http://192.168.x.x` LAN address
+you still get a home-screen icon and fullscreen, but no offline caching.
+
 ## Controls
 
 Designed so that one tap always does the obvious thing.
@@ -100,6 +115,7 @@ The simulation deliberately contains no DOM access, so all of it runs headless.
 npm test             # 24 simulation checks + a full mission playthrough
 npm run test:browser # 5 viewports, the portrait nudge, and offline play
 npm run test:touch   # real touch gestures: tap, drag, long press, pinch
+npm run test:pwa     # installability: manifest, icons, SW scope, offline
 npm run perf         # measures real frame rate in Chromium at iPhone size
 npm run shots        # captures screenshots of the running game
 npm run balance      # regenerates the balance tables in docs/DESIGN.md

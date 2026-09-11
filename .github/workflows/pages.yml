@@ -1,0 +1,62 @@
+# Publishes the game to GitHub Pages so it can be installed as a home-screen
+# app. Pages needs HTTPS, which is what makes the service worker (and therefore
+# offline play) work at all.
+#
+# Requires Pages to be available for this repository: public repos on any plan,
+# private repos only on GitHub Pro or above.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [claude/iraq-strategy-game-prototype-bfw74g]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; always finish the one in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        # Ship only what the game loads at runtime — no tests, no tooling, no
+        # git history. The whole thing is a few hundred kilobytes of text.
+        run: |
+          mkdir -p _site
+          cp index.html styles.css manifest.webmanifest sw.js _site/
+          cp icon.svg icon-180.png icon-512.png icon-maskable.png _site/
+          cp -r src _site/
+          echo "Deploying $(find _site -type f | wc -l) files, $(du -sh _site | cut -f1)"
+
+      - name: Verify nothing depends on being at the domain root
+        # A Pages project site serves from /<repo>/, so an absolute path would
+        # silently 404 there while working perfectly in local testing.
+        run: |
+          if grep -rnE '(src|href)="/[^/]' _site --include='*.html' --include='*.js' --include='*.css'; then
+            echo "::error::Found an absolute path; Pages serves this app from a subdirectory."
+            exit 1
+          fi
+          echo "All paths are relative."
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
