@@ -12,7 +12,7 @@ export class Camera {
     this.y = worldH / 2;
     this.zoom = 1;
     this.minZoom = 0.42;
-    this.maxZoom = 1.9;
+    this.maxZoom = 1.45;
     this.worldW = worldW;
     this.worldH = worldH;
     this.vw = 800; this.vh = 600;

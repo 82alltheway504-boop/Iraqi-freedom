@@ -1,6 +1,4 @@
-import { T, TILE } from '../world/terrain.js';
-import { clamp } from '../core/math.js';
-
+import { T } from '../world/terrain.js';
 // ---------------------------------------------------------------------------
 // "Highway 8" — the area of operations for mission 01.
 //
@@ -45,23 +43,30 @@ export const MAP01 = {
   ],
 };
 
-/** Trace a road of the given half-width along a polyline of tile waypoints. */
+/**
+ * Trace a band of the given half-width along a polyline of tile waypoints.
+ * Works from the true distance to each line segment rather than stamping a
+ * square at every step, so a diagonal road has a clean edge instead of a
+ * staircase of blocks.
+ */
 function paintPath(grid, pts, half, tile, over = null) {
+  const r = half + 0.55;
   for (let i = 0; i < pts.length - 1; i++) {
     const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
-    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 3;
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const cx = Math.round(x0 + (x1 - x0) * t);
-      const cy = Math.round(y0 + (y1 - y0) * t);
-      for (let dy = -half; dy <= half; dy++) {
-        for (let dx = -half; dx <= half; dx++) {
-          if (dx * dx + dy * dy > half * half + half) continue;
-          const tx = cx + dx, ty = cy + dy;
-          if (!grid.inBounds(tx, ty)) continue;
-          if (over !== null && grid.get(tx, ty) !== over) continue;
-          grid.set(tx, ty, tile);
-        }
+    const dx = x1 - x0, dy = y1 - y0;
+    const len2 = dx * dx + dy * dy || 1;
+    const lo = { x: Math.floor(Math.min(x0, x1) - r - 1), y: Math.floor(Math.min(y0, y1) - r - 1) };
+    const hi = { x: Math.ceil(Math.max(x0, x1) + r + 1), y: Math.ceil(Math.max(y0, y1) + r + 1) };
+    for (let ty = lo.y; ty <= hi.y; ty++) {
+      for (let tx = lo.x; tx <= hi.x; tx++) {
+        if (!grid.inBounds(tx, ty)) continue;
+        if (over !== null && grid.get(tx, ty) !== over) continue;
+        // Closest point on the segment to this tile centre.
+        let t = ((tx - x0) * dx + (ty - y0) * dy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const px = x0 + dx * t, py = y0 + dy * t;
+        const d = Math.hypot(tx - px, ty - py);
+        if (d <= r) grid.set(tx, ty, tile);
       }
     }
   }

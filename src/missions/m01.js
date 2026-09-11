@@ -2,7 +2,7 @@ import { World } from '../sim/world.js';
 import { AiCommander } from '../sim/ai.js';
 import { FACTION } from '../sim/defs.js';
 import { TILE } from '../world/terrain.js';
-import { makeRng, dist, clamp } from '../core/math.js';
+import { makeRng, dist } from '../core/math.js';
 import { MAP01, paintMap01 } from './map01.js';
 
 // ---------------------------------------------------------------------------
@@ -154,10 +154,17 @@ class Mission01 {
 
   obj(id) { return this.objectives.find((o) => o.id === id); }
 
+  /** Seconds until the next scripted counterattack, or null if none is due. */
+  nextWaveIn() {
+    if (this.deployedAt < 0 || this.wavesSent >= WAVES.length) return null;
+    return Math.max(0, WAVES[this.wavesSent].at - (this.time - this.deployedAt));
+  }
+
   _complete(id, msg) {
     const o = this.obj(id);
     if (!o || o.state === 'done') return;
     o.state = 'done';
+    o.doneAt = this.time;
     if (msg) this.radio(msg, 'good');
     this.events.push({ type: 'objective' });
   }
@@ -166,9 +173,10 @@ class Mission01 {
     const o = this.obj(id);
     if (!o || o.state !== 'hidden') return;
     o.state = 'active';
+    o.activatedAt = this.time;
+    this.events.push({ type: 'objectiveNew' });
     if (!msg) return;
     this.radio(msg, 'info');
-    this.events.push({ type: 'objective' });
   }
 
   radio(text, kind = 'info') {

@@ -1,6 +1,6 @@
-import { dist, dist2, TAU, clamp } from '../core/math.js';
+import { dist, dist2, TAU } from '../core/math.js';
 import { TILE } from '../world/terrain.js';
-import { defOf, UNITS } from './defs.js';
+import { defOf } from './defs.js';
 import { Order } from './entity.js';
 
 // ---------------------------------------------------------------------------

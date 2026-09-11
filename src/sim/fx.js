@@ -13,7 +13,11 @@ export class Fx {
     this.texts = [];
     this.shake = 0;
     this.decalDirty = false;
-    this.maxParts = 900;
+    this.maxParts = 620;
+    // Effect density, 0.4 .. 1. Driven by the measured frame rate: big soft
+    // additive particles are the most fill-hungry thing on screen, so this is
+    // the knob that keeps a weaker device smooth instead of choppy.
+    this.quality = 1;
   }
 
   _p() {
@@ -49,7 +53,8 @@ export class Fx {
 
   muzzleFlash(x, y, angle, scale = 1) {
     const r = this.rng;
-    for (let i = 0; i < 4; i++) {
+    const n = this.quality > 0.7 ? 4 : 2;
+    for (let i = 0; i < n; i++) {
       const a = angle + r.range(-0.35, 0.35);
       const s = r.range(40, 130) * scale;
       this.spawn(x, y, {
@@ -62,7 +67,8 @@ export class Fx {
 
   impactDust(x, y, scale = 1) {
     const r = this.rng;
-    for (let i = 0; i < 5; i++) {
+    const n = this.quality > 0.7 ? 5 : 2;
+    for (let i = 0; i < n; i++) {
       const a = r.range(0, TAU);
       const s = r.range(12, 55) * scale;
       this.spawn(x, y, {
@@ -75,7 +81,8 @@ export class Fx {
 
   explosion(x, y, radius = 30, big = false) {
     const r = this.rng;
-    const n = big ? 26 : 14;
+    const q = this.quality;
+    const n = Math.max(4, Math.round((big ? 22 : 12) * q));
     for (let i = 0; i < n; i++) {
       const a = r.range(0, TAU);
       const s = r.range(30, 180) * (radius / 30);
@@ -85,12 +92,14 @@ export class Fx {
         c0: i % 3 === 0 ? '#fff0b8' : '#ff9b3c', c1: 'rgba(120,60,20,0)', glow: true, drag: 0.86,
       });
     }
-    for (let i = 0; i < n; i++) {
+    // Smoke is the expensive half: large, long-lived and additive-adjacent.
+    const smokeN = Math.max(2, Math.round(n * (q > 0.7 ? 0.85 : 0.4)));
+    for (let i = 0; i < smokeN; i++) {
       const a = r.range(0, TAU);
       const s = r.range(10, 70) * (radius / 30);
       this.spawn(x, y, {
         vx: Math.cos(a) * s, vy: Math.sin(a) * s - r.range(5, 25),
-        life: r.range(0.7, 1.8), r0: r.range(4, 10), r1: r.range(14, 30) * (big ? 1.6 : 1),
+        life: r.range(0.6, 1.5), r0: r.range(4, 9), r1: r.range(12, 24) * (big ? 1.45 : 1),
         c0: 'rgba(80,70,62,0.55)', c1: 'rgba(150,140,125,0)', drag: 0.94,
       });
     }
@@ -101,6 +110,7 @@ export class Fx {
 
   debris(x, y, count = 8) {
     const r = this.rng;
+    count = Math.max(2, Math.round(count * this.quality));
     for (let i = 0; i < count; i++) {
       const a = r.range(0, TAU);
       const s = r.range(40, 160);
@@ -114,6 +124,7 @@ export class Fx {
   }
 
   smoke(x, y, scale = 1) {
+    if (this.quality < 0.6) return;      // burning-structure smoke is cosmetic
     const r = this.rng;
     this.spawn(x, y + r.range(-4, 4), {
       vx: r.range(-6, 6), vy: -r.range(8, 20),
@@ -142,7 +153,7 @@ export class Fx {
       t.life -= dt; t.y -= 16 * dt;
       if (t.life <= 0) this.texts.splice(i, 1);
     }
-    if (this.decals.length > 220) { this.decals.splice(0, this.decals.length - 220); this.decalDirty = true; }
+    if (this.decals.length > 130) { this.decals.splice(0, this.decals.length - 130); this.decalDirty = true; }
     this.shake *= Math.pow(0.86, dt * 60);
     if (this.shake < 0.05) this.shake = 0;
   }

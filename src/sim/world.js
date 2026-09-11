@@ -2,13 +2,10 @@ import { clamp, dist, dist2, makeRng, formationSlots, TAU } from '../core/math.j
 import { Grid } from '../world/grid.js';
 import { Pathfinder } from '../world/pathfinder.js';
 import { Fog } from '../world/fog.js';
-import { TILE, TERRAIN, FOOT, WHEEL, TRACK } from '../world/terrain.js';
-import { Unit, Building, Order, resetIds } from './entity.js';
-import { UNITS, BUILDINGS, POWERS, defOf, FACTION } from './defs.js';
-import {
-  computeDamage, Armor, Damage, ROE, roeTier, VET_RANKS,
-  LOW_POWER_PRODUCTION, LOW_POWER_DEFENSE, GARRISON_BLEED,
-} from './rules.js';
+import { TILE, TERRAIN, FOOT } from '../world/terrain.js';
+import { Unit, Building, resetIds } from './entity.js';
+import { POWERS, defOf } from './defs.js';
+import { computeDamage, Armor, Damage, ROE, roeTier, VET_RANKS, LOW_POWER_PRODUCTION, LOW_POWER_DEFENSE, GARRISON_BLEED } from './rules.js';
 import { Fx } from './fx.js';
 
 export class Player {

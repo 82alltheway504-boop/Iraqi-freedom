@@ -3,8 +3,6 @@
 import { World } from '../src/sim/world.js';
 import { FACTION } from '../src/sim/defs.js';
 import { T, TILE } from '../src/world/terrain.js';
-import { Order } from '../src/sim/entity.js';
-
 const DT = 1 / 30;
 let failures = 0;
 const check = (name, cond, detail = '') => {

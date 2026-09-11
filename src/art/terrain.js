@@ -23,6 +23,24 @@ function h2(x, y, salt = 0) {
 }
 const hRange = (x, y, s, lo, hi) => lo + h2(x, y, s) * (hi - lo);
 
+/** Smooth-interpolated value noise — continuous across chunk boundaries. */
+function vnoise(x, y, salt) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const a = h2(xi, yi, salt), b = h2(xi + 1, yi, salt);
+  const c = h2(xi, yi + 1, salt), d = h2(xi + 1, yi + 1, salt);
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+
+/** Two octaves of dune shaping, in tile units. */
+function dune(tx, ty) {
+  return vnoise(tx / 9, ty / 7, 1) * 0.62 +
+         vnoise(tx / 3.3, ty / 2.7, 2) * 0.28 +
+         vnoise(tx / 1.4, ty / 1.6, 3) * 0.10;
+}
+
 export class TerrainPainter {
   constructor(grid) {
     this.grid = grid;
@@ -88,6 +106,11 @@ export class TerrainPainter {
         this._base(g, px, py, tx, ty, t);
       }
     }
+    // Dune pass: a single smoothly-interpolated light/shade layer over the
+    // whole chunk. This is what turns flat tiles into rolling ground, and it
+    // costs one upscaled 19x19 image per chunk.
+    this._dunes(g, ox, oy);
+
     // Edge pass: water foam, berm shading, road markings need neighbours.
     for (let ty = oy - 1; ty <= oy + CHUNK; ty++) {
       for (let tx = ox - 1; tx <= ox + CHUNK; tx++) {
@@ -105,6 +128,39 @@ export class TerrainPainter {
         this._props(g, px, py, tx, ty, t);
       }
     }
+  }
+
+  /** Smooth large-scale light and shade, sampled once per tile and upscaled. */
+  _dunes(g, ox, oy) {
+    const grid = this.grid;
+    const N = CHUNK + 3;                        // one sample per tile, plus margin
+    const c = makeCanvas(N, N);
+    const cx2 = c.getContext('2d');
+    const img = cx2.createImageData(N, N);
+    const d = img.data;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const tx = ox - 1 + i, ty = oy - 1 + j;
+        // Water and roads are flat surfaces — keep the dune shading off them.
+        const t = grid.inBounds(tx, ty) ? grid.get(tx, ty) : T.SAND;
+        const flat = (t === T.WATER || t === T.CANAL);
+        const v = dune(tx, ty) - 0.5;
+        const amp = flat ? 0 : t === T.ROAD ? 30 : 78;
+        const a = Math.min(255, Math.abs(v) * 2 * amp);
+        const o = (j * N + i) * 4;
+        const lit = v > 0;
+        d[o] = lit ? 255 : 42;
+        d[o + 1] = lit ? 246 : 34;
+        d[o + 2] = lit ? 214 : 22;
+        d[o + 3] = a;
+      }
+    }
+    cx2.putImageData(img, 0, 0);
+    g.save();
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(c, -TILE * 1.5, -TILE * 1.5, N * TILE, N * TILE);
+    g.restore();
   }
 
   _base(g, px, py, tx, ty, t) {
@@ -136,9 +192,10 @@ export class TerrainPainter {
   }
 
   _sand(g, px, py, tx, ty, detail) {
-    // Four-way blend of slightly different sands keeps large expanses alive.
-    const v = h2(tx, ty, 1);
-    g.fillStyle = v < 0.3 ? PAL.sand0 : v < 0.65 ? PAL.sand1 : v < 0.88 ? PAL.sand2 : PAL.sand3;
+    // A single flat base. Large-scale tone comes from the dune layer, which is
+    // smoothly interpolated across tiles — per-tile colour variation is what
+    // makes a desert read as a checkerboard, so there is none here.
+    g.fillStyle = PAL.sand1;
     g.fillRect(px, py, TILE, TILE);
 
     // Wind-blown ripples running roughly north-east.
@@ -180,11 +237,12 @@ export class TerrainPainter {
       const nN = at(0, -1) === T.ROAD, nS = at(0, 1) === T.ROAD;
       const nE = at(1, 0) === T.ROAD, nW = at(-1, 0) === T.ROAD;
       const inset = 3;
-      const x0 = nW ? px : px + inset, x1 = nE ? px + TILE : px + TILE - inset;
-      const y0 = nN ? py : py + inset, y1 = nS ? py + TILE : py + TILE - inset;
-      const v = h2(tx, ty, 7);
+      // Half a pixel of overlap on connected sides so adjacent tiles leave no
+      // hairline seam once the ribbon is drawn.
+      const x0 = nW ? px - 0.5 : px + inset, x1 = nE ? px + TILE + 0.5 : px + TILE - inset;
+      const y0 = nN ? py - 0.5 : py + inset, y1 = nS ? py + TILE + 0.5 : py + TILE - inset;
       rr(g, x0, y0, x1 - x0, y1 - y0, 5);
-      g.fillStyle = v < 0.4 ? PAL.road0 : v < 0.8 ? PAL.road1 : PAL.road2;
+      g.fillStyle = PAL.road0;
       g.fill();
       g.save(); rr(g, x0, y0, x1 - x0, y1 - y0, 5); g.clip();
       // Cracks and patches.
@@ -196,8 +254,15 @@ export class TerrainPainter {
         g.lineTo(sx + hRange(tx, ty, 90 + i, -9, 9), sy + hRange(tx, ty, 100 + i, -9, 9));
         g.stroke();
       }
-      g.fillStyle = 'rgba(200,190,170,0.06)';
-      g.fillRect(px, py, TILE, TILE * 0.4);
+      // Worn wheel tracks: two slightly paler bands along the direction of travel.
+      g.fillStyle = 'rgba(196,186,166,0.055)';
+      if (nE || nW) {
+        g.fillRect(px - 1, py + TILE * 0.20, TILE + 2, TILE * 0.14);
+        g.fillRect(px - 1, py + TILE * 0.64, TILE + 2, TILE * 0.14);
+      } else {
+        g.fillRect(px + TILE * 0.20, py - 1, TILE * 0.14, TILE + 2);
+        g.fillRect(px + TILE * 0.64, py - 1, TILE * 0.14, TILE + 2);
+      }
       // Centre line: dashes along whichever axis the road runs.
       const horiz = (nE || nW) && !(nN || nS);
       const vert = (nN || nS) && !(nE || nW);
@@ -269,8 +334,21 @@ export class TerrainPainter {
     }
 
     if (t === T.SCRUB) {
-      g.fillStyle = 'rgba(142,133,81,0.30)';
-      g.fillRect(px, py, TILE, TILE);
+      // A soft irregular patch, so a scrub field has a ragged edge rather than
+      // a tile-shaped one.
+      g.save();
+      g.fillStyle = 'rgba(142,133,81,0.26)';
+      g.beginPath();
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * TAU;
+        const r = TILE * hRange(tx, ty, 400 + k, 0.44, 0.76);
+        const x = px + TILE / 2 + Math.cos(a) * r;
+        const y = py + TILE / 2 + Math.sin(a) * r;
+        if (k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.closePath();
+      g.fill();
+      g.restore();
     }
   }
 
@@ -293,8 +371,18 @@ export class TerrainPainter {
     }
 
     if (t === T.RUBBLE) {
-      g.fillStyle = 'rgba(120,110,96,0.4)';
-      g.fillRect(px, py, TILE, TILE);
+      g.save();
+      g.fillStyle = 'rgba(120,110,96,0.38)';
+      g.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * TAU;
+        const r = TILE * hRange(tx, ty, 420 + k, 0.48, 0.78);
+        const x = px + TILE / 2 + Math.cos(a) * r;
+        const y = py + TILE / 2 + Math.sin(a) * r;
+        if (k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.closePath(); g.fill();
+      g.restore();
       const n = 6 + ((h2(tx, ty, 12) * 5) | 0);
       for (let i = 0; i < n; i++) {
         const sx = px + hRange(tx, ty, 200 + i, 2, TILE - 4);

@@ -161,6 +161,13 @@ export class Input {
       return;
     }
 
+    // Placing a structure or aiming a support power: the drag positions the
+    // thing being placed rather than moving the camera.
+    if (this.mode === 'place' || this.mode === 'target') {
+      this.h.onDrag?.(p.x, p.y, rec);
+      return;
+    }
+
     if (rec.touch && rec.moved > TAP_SLOP && this.mode !== 'select') {
       this.suppressTap = true;
       this.h.onPan?.(dx, dy);
@@ -178,6 +185,15 @@ export class Input {
     this.el.releasePointerCapture?.(e.pointerId);
 
     const dur = performance.now() - rec.t0;
+
+    // In placement and targeting modes the release is always the commit, however
+    // far the finger travelled getting there.
+    if ((this.mode === 'place' || this.mode === 'target') && !cancelled && this.pointers.size === 0) {
+      this.box = null;
+      this.h.onTap?.(rec.x, rec.y, { shift: this.shift });
+      this.suppressTap = false;
+      return;
+    }
 
     if (this.box) {
       const b = this.box;

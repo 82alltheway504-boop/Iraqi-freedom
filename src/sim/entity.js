@@ -1,7 +1,7 @@
-import { clamp, dist, dist2, turnToward, TAU, angleDelta } from '../core/math.js';
+import { clamp, dist, turnToward, angleDelta } from '../core/math.js';
 import { TILE, FOOT } from '../world/terrain.js';
 import { defOf } from './defs.js';
-import { computeDamage, rankFor, VET_RANKS, Armor } from './rules.js';
+import { computeDamage, rankFor, VET_RANKS } from './rules.js';
 
 let NEXT_ID = 1;
 export const resetIds = () => { NEXT_ID = 1; };

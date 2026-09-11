@@ -1,5 +1,5 @@
 import { PAL } from './palette.js';
-import { sprite, rr, poly, plate, seam, dot, speckle, groundShadow, teamFlash, outlinePath, makeCanvas, SS } from './draw.js';
+import { sprite, rr, poly, plate, seam, dot, speckle, teamFlash, outlinePath } from './draw.js';
 import { makeRng, TAU } from '../core/math.js';
 import { UNITS, BUILDINGS, FACTION } from '../sim/defs.js';
 import { TILE } from '../world/terrain.js';
@@ -667,16 +667,21 @@ export function buildBuildingArt() {
 export function buildIcons() {
   const S = 48;
   const mk = (fn) => sprite(S, S, fn);
-  const bg = (g, c0 = '#2a3122', c1 = '#1a2016') => {
+  const bg = (g, c0 = '#414d33', c1 = '#232b1a') => {
     rr(g, -S / 2 + 2, -S / 2 + 2, S - 4, S - 4, 5);
     const grd = g.createLinearGradient(0, -S / 2, 0, S / 2);
     grd.addColorStop(0, c0); grd.addColorStop(1, c1);
     g.fillStyle = grd; g.fill();
+    // A hairline inner highlight lifts the glyph off the plate.
+    rr(g, -S / 2 + 2.5, -S / 2 + 2.5, S - 5, S - 5, 4);
+    g.strokeStyle = 'rgba(255,255,255,0.10)';
+    g.lineWidth = 1;
+    g.stroke();
   };
   const icons = {};
 
   const vehicleGlyph = (g, kind) => {
-    g.save(); g.rotate(-Math.PI / 2); g.scale(0.62, 0.62);
+    g.save(); g.rotate(-Math.PI / 2); g.scale(0.80, 0.80);
     const rng = makeRng(4);
     if (kind === 'mbt') { mbtHull(g, FACTION.CTF, PAL.team[0], rng); mbtTurret(g, FACTION.CTF, PAL.team[0], rng); }
     else if (kind === 'ifv') { ifvHull(g, FACTION.CTF, PAL.team[0], rng); ifvTurret(g, FACTION.CTF, PAL.team[0], rng); }
@@ -685,16 +690,16 @@ export function buildIcons() {
     g.restore();
   };
 
-  icons.rifle_squad = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.35, 1.35); soldier(g, FACTION.CTF, PAL.team[0], 'rifle', 0, makeRng(2)); g.restore(); });
-  icons.at_team = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.35, 1.35); soldier(g, FACTION.CTF, PAL.team[0], 'at', 0, makeRng(3)); g.restore(); });
-  icons.engineer = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.35, 1.35); soldier(g, FACTION.CTF, PAL.team[0], 'engineer', 0, makeRng(4)); g.restore(); });
+  icons.rifle_squad = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'rifle', 0, makeRng(2)); g.restore(); });
+  icons.at_team = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'at', 0, makeRng(3)); g.restore(); });
+  icons.engineer = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'engineer', 0, makeRng(4)); g.restore(); });
   icons.humvee = mk((g) => { bg(g); vehicleGlyph(g, 'humvee'); });
   icons.ifv = mk((g) => { bg(g); vehicleGlyph(g, 'ifv'); });
   icons.mbt = mk((g) => { bg(g); vehicleGlyph(g, 'mbt'); });
   icons.supply_truck = mk((g) => { bg(g); vehicleGlyph(g, 'truck'); });
 
   const structGlyph = (style, w = 34, h = 28) => mk((g) => {
-    bg(g, '#2b2f24', '#181c14');
+    bg(g, '#44503a', '#242c1c');
     g.save(); g.scale(0.86, 0.86);
     STRUCT[style](g, w, h, FACTION.CTF, PAL.team[0], makeRng(9));
     g.restore();

@@ -1,0 +1,16 @@
+{
+  "name": "operation-iraqi-freedom-talon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Task Force Talon — a tactical real-time strategy prototype for touch. Zero dependencies, zero binary assets.",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs 8080",
+    "test": "node tools/simtest.mjs && node tools/missiontest.mjs",
+    "test:sim": "node tools/simtest.mjs",
+    "test:mission": "node tools/missiontest.mjs",
+    "shots": "node tools/shot.mjs",
+    "perf": "node tools/perf.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

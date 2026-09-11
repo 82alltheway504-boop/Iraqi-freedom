@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12160f">
+<meta name="description" content="Operation Iraqi Freedom — a tactical real-time strategy prototype for touch.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Task Force Talon">
+<title>Operation Iraqi Freedom — Task Force Talon</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <div id="hud" hidden>
+    <!-- Top strip: economy, power, local support, clock -->
+    <div id="topbar">
+      <div class="stat" id="statSupply" title="Supply">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5" class="ln"/><path d="M12 13v8" class="ln"/></svg>
+        <b id="supplyVal">0</b>
+      </div>
+      <div class="stat" id="statPower" title="Power">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
+        <b id="powerVal">0</b>
+      </div>
+      <div class="stat wide" id="statSupport" title="Local Support">
+        <span class="lbl">SUPPORT</span>
+        <div class="meter"><i id="supportFill"></i></div>
+        <b id="supportVal">100%</b>
+      </div>
+      <div class="grow"></div>
+      <div class="stat" id="statClock"><b id="clockVal">0:00</b></div>
+      <button class="iconbtn" id="btnSound" aria-label="Toggle sound">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a5 5 0 010 8" class="ln"/></svg>
+      </button>
+      <button class="iconbtn" id="btnMenu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M3 6h18M3 12h18M3 18h18" class="ln"/></svg>
+      </button>
+    </div>
+
+    <!-- Objectives, collapsible so it can get out of the way on a phone -->
+    <section id="objectives" class="panel">
+      <header id="objHeader">
+        <span class="tag">OBJECTIVES</span>
+        <span id="objCount"></span>
+        <span class="chev">▾</span>
+      </header>
+      <ul id="objList"></ul>
+    </section>
+
+    <!-- Right rail: minimap and the production palette -->
+    <aside id="rail">
+      <div id="minimapWrap">
+        <canvas id="minimap"></canvas>
+      </div>
+      <nav id="tabs">
+        <button data-tab="units" class="on">UNITS</button>
+        <button data-tab="build">BUILD</button>
+        <button data-tab="support">AIR</button>
+      </nav>
+      <div id="palette"></div>
+    </aside>
+
+    <!-- Bottom: current selection and its available orders -->
+    <div id="bottom">
+      <div id="selection"></div>
+      <div id="cmdbar"></div>
+    </div>
+
+    <div id="notices"></div>
+    <div id="hint"></div>
+  </div>
+
+  <div id="overlay"></div>
+  <div id="rotate">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="18" y="6" width="28" height="52" rx="4"/><path d="M8 40a24 24 0 0048 0" class="ln"/></svg>
+    <p>Turn your device sideways</p>
+    <small>This one wants the width.</small>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

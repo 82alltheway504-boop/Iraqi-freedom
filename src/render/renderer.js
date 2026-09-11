@@ -1,10 +1,9 @@
 import { PAL, factionTeamColor } from '../art/palette.js';
 import { TerrainPainter } from '../art/terrain.js';
 import { makeCanvas, rr, dot } from '../art/draw.js';
+import { RadialCache } from '../art/radial.js';
 import { TILE } from '../world/terrain.js';
 import { clamp, TAU } from '../core/math.js';
-import { VET_RANKS } from '../sim/rules.js';
-
 export class Renderer {
   constructor(canvas, world, art) {
     this.canvas = canvas;
@@ -16,6 +15,9 @@ export class Renderer {
     this.fogCanvas = makeCanvas(world.grid.w, world.grid.h);
     this.fogCtx = this.fogCanvas.getContext('2d');
     this.fogImage = this.fogCtx.createImageData(world.grid.w, world.grid.h);
+    // Creating a radial gradient per particle per frame is the single most
+    // expensive thing a Canvas2D game can do. Bake them once instead.
+    this.puffs = new RadialCache();
     this.showRanges = false;
     this.placement = null;          // { defId, tx, ty, ok }
     this.targetingLine = null;      // { x0,y0,x1,y1 } for the strafing run
@@ -106,16 +108,14 @@ export class Renderer {
   // --- layers ---------------------------------------------------------------
   _drawDecals(g, visible) {
     const d = this.world.fx.decals;
+    const spr = this.puffs.scorch();
     g.save();
     for (const s of d) {
       if (!visible(s.x, s.y, s.r + 20)) continue;
-      const grd = g.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
-      grd.addColorStop(0, `rgba(38,30,20,${s.a})`);
-      grd.addColorStop(0.6, `rgba(52,42,28,${s.a * 0.55})`);
-      grd.addColorStop(1, 'rgba(60,50,34,0)');
-      g.fillStyle = grd;
-      g.beginPath(); g.arc(s.x, s.y, s.r, 0, TAU); g.fill();
+      g.globalAlpha = s.a;
+      g.drawImage(spr, s.x - s.r, s.y - s.r, s.r * 2, s.r * 2);
     }
+    g.globalAlpha = 1;
     g.restore();
   }
 
@@ -301,10 +301,13 @@ export class Renderer {
 
     g.rotate(u.angle);
     if (art.infantry) {
-      // Alternate the two walk frames from distance travelled.
+      // Alternate the two walk frames from distance travelled. Drawn slightly
+      // larger than the collision radius: a lone soldier has to stay readable
+      // on a phone at a zoomed-out view.
       const fr = u.moving ? ((u.trackPhase / 9) | 0) % 2 : 0;
       const s = art.frames[fr];
-      g.drawImage(s.canvas, -s.ox, -s.oy, s.w, s.h);
+      const k = 1.3;
+      g.drawImage(s.canvas, -s.ox * k, -s.oy * k, s.w * k, s.h * k);
     } else {
       const s = art.hull;
       g.save();
@@ -387,12 +390,8 @@ export class Renderer {
     g.rotate(angle);
     g.translate(dist, 0);
     g.globalCompositeOperation = 'lighter';
-    const grd = g.createRadialGradient(0, 0, 0, 0, 0, 9 * scale);
-    grd.addColorStop(0, 'rgba(255,246,214,0.95)');
-    grd.addColorStop(0.4, 'rgba(255,180,70,0.6)');
-    grd.addColorStop(1, 'rgba(255,140,40,0)');
-    g.fillStyle = grd;
-    g.beginPath(); g.arc(0, 0, 9 * scale, 0, TAU); g.fill();
+    const r = 9 * scale;
+    g.drawImage(this.puffs.flash(), -r, -r, r * 2, r * 2);
     g.fillStyle = 'rgba(255,238,190,0.85)';
     g.beginPath();
     g.moveTo(0, -2.2 * scale); g.lineTo(9 * scale, 0); g.lineTo(0, 2.2 * scale);
@@ -544,30 +543,31 @@ export class Renderer {
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
 
-    for (const p of fx.parts) {
-      if (p.life <= 0) continue;
-      if (!visible(p.x, p.y, 40)) continue;
-      const t = p.life / p.maxLife;
-      const r = p.r1 + (p.r0 - p.r1) * t;
-      if (r <= 0.15) continue;
-      g.globalCompositeOperation = p.glow ? 'lighter' : 'source-over';
-      if (p.spin) {
-        g.save();
-        g.translate(p.x, p.y);
-        g.rotate(p.rot);
-        g.fillStyle = p.c0;
-        g.globalAlpha = clamp(t * 1.4, 0, 1);
-        g.fillRect(-r, -r * 0.6, r * 2, r * 1.2);
-        g.restore();
-        g.globalAlpha = 1;
-        continue;
+    // Two passes so the composite mode is switched once, not per particle.
+    for (let pass = 0; pass < 2; pass++) {
+      g.globalCompositeOperation = pass === 1 ? 'lighter' : 'source-over';
+      for (const p of fx.parts) {
+        if (p.life <= 0) continue;
+        if ((p.glow ? 1 : 0) !== pass) continue;
+        if (!visible(p.x, p.y, 40)) continue;
+        const t = p.life / p.maxLife;
+        const r = p.r1 + (p.r0 - p.r1) * t;
+        if (r <= 0.4) continue;
+        const a = clamp(t * 1.25, 0, 1);
+        if (a < 0.045) continue;        // invisible, but still costs a blit
+        g.globalAlpha = a;
+        if (p.spin) {
+          g.save();
+          g.translate(p.x, p.y);
+          g.rotate(p.rot);
+          g.fillStyle = p.c0;
+          g.fillRect(-r, -r * 0.6, r * 2, r * 1.2);
+          g.restore();
+          continue;
+        }
+        const spr = this.puffs.get(p.c0, p.c1);
+        g.drawImage(spr, p.x - r, p.y - r, r * 2, r * 2);
       }
-      const grd = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-      grd.addColorStop(0, p.c0);
-      grd.addColorStop(1, p.c1);
-      g.fillStyle = grd;
-      g.globalAlpha = clamp(t * 1.25, 0, 1);
-      g.beginPath(); g.arc(p.x, p.y, r, 0, TAU); g.fill();
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
@@ -659,21 +659,39 @@ export class Renderer {
     const fog = this.world.fog;
     if (!fog.enabled) return;
     const grid = this.world.grid;
-    const img = this.fogImage;
-    const d = img.data;
-    for (let i = 0, n = grid.w * grid.h; i < n; i++) {
-      const vis = fog.visible[i], exp = fog.explored[i];
-      const a = vis ? 0 : exp ? 128 : 246;
-      const o = i * 4;
-      d[o] = 10; d[o + 1] = 12; d[o + 2] = 8; d[o + 3] = a;
+
+    // The fog raster only changes when the fog itself is recomputed, which is
+    // eight times a second — not every frame.
+    if (fog.dirty || !this._fogPainted) {
+      const img = this.fogImage;
+      const d = img.data;
+      for (let i = 0, n = grid.w * grid.h; i < n; i++) {
+        const a = fog.visible[i] ? 0 : fog.explored[i] ? 128 : 246;
+        const o = i * 4;
+        d[o] = 10; d[o + 1] = 12; d[o + 2] = 8; d[o + 3] = a;
+      }
+      this.fogCtx.putImageData(img, 0, 0);
+      fog.dirty = false;
+      this._fogPainted = true;
     }
-    this.fogCtx.putImageData(img, 0, 0);
-    g.save();
-    g.imageSmoothingEnabled = true;
-    g.imageSmoothingQuality = 'high';
-    // Bleed half a tile outward so the smoothing gradient lands on tile edges.
-    g.drawImage(this.fogCanvas, -TILE / 2, -TILE / 2,
-      grid.w * TILE + TILE, grid.h * TILE + TILE);
+
+    // Blit only the tiles actually on screen. Scaling the whole 96x72 raster
+    // across the entire map every frame is pure waste when zoomed in.
+    const t0x = clamp(Math.floor(view.x0 / TILE) - 1, 0, grid.w - 1);
+    const t0y = clamp(Math.floor(view.y0 / TILE) - 1, 0, grid.h - 1);
+    const t1x = clamp(Math.ceil(view.x1 / TILE) + 1, 1, grid.w);
+    const t1y = clamp(Math.ceil(view.y1 / TILE) + 1, 1, grid.h);
+    const sw = t1x - t0x, sh = t1y - t0y;
+    if (sw > 0 && sh > 0) {
+      g.save();
+      g.imageSmoothingEnabled = true;
+      // Half a tile of bleed so the smoothing gradient lands on tile edges.
+      g.drawImage(this.fogCanvas, t0x, t0y, sw, sh,
+        t0x * TILE - TILE / 2, t0y * TILE - TILE / 2,
+        sw * TILE + TILE, sh * TILE + TILE);
+      g.restore();
+    }
+
     // Beyond the map edge, full shroud.
     const W = grid.w * TILE, H = grid.h * TILE, m = 3000;
     g.fillStyle = PAL.shroud;
@@ -681,6 +699,5 @@ export class Renderer {
     g.fillRect(-m, H, W + 2 * m, m);
     g.fillRect(-m, 0, m, H);
     g.fillRect(W, 0, m, H);
-    g.restore();
   }
 }
