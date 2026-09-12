@@ -22,6 +22,25 @@ Any static file server will do — there is no build step. Open it on a phone,
 turn the device sideways, and add it to your home screen to run it fullscreen
 as an installed app.
 
+### One self-contained file
+
+```bash
+npm run bundle       # -> dist/task-force-talon.html
+```
+
+Produces a single 334 KB HTML file with the entire game inside it — all 28
+modules, the stylesheet, and the icon as a data URI. It runs from a `file://`
+URL with no server, no network and no module loader; `npm run test:bundle`
+asserts exactly that, including that the page issues zero network requests.
+
+The bundler validates every import against the exporting module's actual
+export list and fails the build on a mismatch. That guard exists because the
+first version silently dropped `WHEEL` and `TRACK` from
+`export const FOOT = 0, WHEEL = 1, TRACK = 2;` — it captured only the first
+declarator — so wheeled and tracked units got `loco === undefined`, terrain
+lookup returned `undefined`, and unit positions became `NaN`. Nothing threw;
+the vehicles just quietly stopped existing in space.
+
 ### Installing it on a phone
 
 The app installs from any HTTPS host. `.github/workflows/pages.yml` deploys it
