@@ -167,7 +167,9 @@ export class Unit extends Entity {
 
   /** Snap straight to the end of the animation — used when resolving fast. */
   finishMove(world) {
-    if (!this.path) return;
+    // A zero-length move (ordered onto the tile already occupied) leaves an
+    // empty path, which is not the same as having no path.
+    if (!this.path || !this.path.length) { this.path = null; this.moving = false; return; }
     const last = this.path[this.path.length - 1];
     this.x = last.x; this.y = last.y;
     this.path = null;

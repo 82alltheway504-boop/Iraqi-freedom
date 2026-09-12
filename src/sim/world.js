@@ -163,9 +163,10 @@ export class World {
     unit.spendAp(cost);
     unit.movedThisTurn = true;
     unit.breakEntrenchment();
-    unit.path = tiles.slice(1).map((t) => ({ x: t.tx * TILE + TILE / 2, y: t.ty * TILE + TILE / 2 }));
+    const steps = tiles.slice(1).map((t) => ({ x: t.tx * TILE + TILE / 2, y: t.ty * TILE + TILE / 2 }));
+    unit.path = steps.length ? steps : null;
     unit.pathIdx = 0;
-    unit.moving = unit.path.length > 0;
+    unit.moving = !!unit.path;
     if (!unit.moving) this.onMoveFinished(unit);
     this.events.push({ type: 'move', owner: unit.owner, defId: unit.defId });
     return { ok: true, cost, tiles };

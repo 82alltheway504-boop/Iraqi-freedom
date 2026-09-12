@@ -21,6 +21,8 @@ export const MAP01 = {
   staging: { tx: 15, ty: 45 },
   depot: { tx: 15, ty: 41 },          // abandoned depot (3x3)
   fuel: { tx: 27, ty: 59 },           // neutral fuel depot (3x2)
+  water: { tx: 12, ty: 52 },          // water plant, close to the player (3x3)
+  oil: { tx: 35, ty: 45 },            // oil derrick, contested middle ground (2x2)
   reinforceEdge: { tx: 2, ty: 57 },
   opAlpha: { tx: 33, ty: 48 },        // Guard observation post 1 (2x2)
   opBravo: { tx: 43, ty: 37 },        // Guard observation post 2 (2x2)
@@ -173,6 +175,8 @@ export function paintMap01(grid, rng) {
   clearArea(grid, M.staging.tx + 1, M.staging.ty + 1, 9, 8);
   clearArea(grid, M.depot.tx + 1, M.depot.ty + 1, 3, 3);
   clearArea(grid, M.fuel.tx + 1, M.fuel.ty, 3, 3);
+  clearArea(grid, M.water.tx + 1, M.water.ty + 1, 3, 3);
+  clearArea(grid, M.oil.tx + 1, M.oil.ty + 1, 3, 3);
   clearArea(grid, M.rgBase.tx + 2, M.rgBase.ty + 2, 9, 8);
   clearArea(grid, M.opAlpha.tx, M.opAlpha.ty, 3, 3);
   clearArea(grid, M.opBravo.tx, M.opBravo.ty, 3, 3);

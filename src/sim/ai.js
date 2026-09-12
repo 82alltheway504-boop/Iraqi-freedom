@@ -1,250 +1,242 @@
-import { dist, dist2, TAU } from '../core/math.js';
+import { dist, dist2 } from '../core/math.js';
 import { TILE } from '../world/terrain.js';
+import { Pathfinder } from '../world/pathfinder.js';
 import { defOf } from './defs.js';
-import { Order } from './entity.js';
+import { Category, Res, computeDamage } from './rules.js';
 
-// ---------------------------------------------------------------------------
-// Opposing-force commander.
-//
-// The Guard does not cheat with vision — it reacts to what its own units and
-// structures can actually see. What it does have is discipline: it holds a
-// garrison line, keeps a reserve at home, and only commits an assault once it
-// has assembled enough of a combined-arms group to be worth committing. That
-// produces an opponent that punishes a careless push without the flailing
-// unit-trickle most scripted AIs fall into.
-// ---------------------------------------------------------------------------
-
-const THINK_INTERVAL = 1.0;
-
+/**
+ * Opposing-force commander, turn-based.
+ *
+ * It plays its whole turn in one call: every unit picks the single best action
+ * available to it, in a deliberate order — shoot what you can already kill,
+ * capture what is undefended, then close on the objective. It does not cheat
+ * with vision; it reacts to what its own units can see.
+ */
 export class AiCommander {
   constructor(world, owner, opts = {}) {
     this.w = world;
     this.owner = owner;
-    this.think = 0;
     this.difficulty = opts.difficulty ?? 1;
-    // Target force mix, as weights. The Guard leans on cheap infantry with a
-    // hard core of armour.
-    this.composition = opts.composition || {
-      militia: 3, rpg_team: 3, technical: 1.5, saqr_ifv: 1.2, asad_mbt: 1.4, aa_track: 0.6,
-    };
-    this.maxArmy = opts.maxArmy ?? 26;
-    this.attackThreshold = opts.attackThreshold ?? 7;
-    this.income = opts.income ?? 26;       // supply per second from off-map logistics
     this.homePoint = opts.homePoint || null;
-    this.staging = opts.staging || null;
-    this.attackTargets = opts.attackTargets || [];
-    this.garrisonPoints = opts.garrisonPoints || [];
-    this.strikeGroup = [];
-    this.attacking = false;
-    this.waveCount = 0;
+    this.objectives = opts.objectives || [];
+    this.composition = opts.composition || {
+      militia: 3, rpg_team: 2.5, rg_mortar: 1, technical: 1.2,
+      saqr_ifv: 1.2, asad_mbt: 1.4, aa_track: 0.8,
+    };
+    this.maxArmy = opts.maxArmy ?? 18;
+    this.aggression = opts.aggression ?? 0.6;   // 0 = turtle, 1 = all-in
+    this.income = opts.income || { fuel: 40, water: 40, oil: 30 };
     this.enabled = true;
-    this.supplyAcc = 0;
+    this.lastReport = [];
   }
 
   get player() { return this.w.players[this.owner]; }
 
-  update(dt) {
-    if (!this.enabled) return;
+  /** Play the entire turn. Returns a short report for the interface. */
+  takeTurn() {
+    if (!this.enabled) return [];
+    const report = [];
     const p = this.player;
+
     // Off-map logistics stand in for the Guard running its own supply lines.
-    this.supplyAcc += this.income * this.difficulty * dt;
-    if (this.supplyAcc >= 1) {
-      const n = Math.floor(this.supplyAcc);
-      this.supplyAcc -= n;
-      p.supply += n;
-      p.earned += n;
+    for (const r of Object.values(Res)) {
+      p.res[r] += Math.round((this.income[r] || 0) * this.difficulty);
     }
 
-    this.think -= dt;
-    if (this.think > 0) return;
-    this.think = THINK_INTERVAL;
+    this._produce(report);
 
-    this._produce();
-    this._garrison();
-    this._defend();
-    this._rebuild();
-    this._offense();
+    // Act with the heaviest units first: they set the shape of the turn and
+    // the light stuff should react to where the armour ended up.
+    const units = this.w.unitsOf(this.owner)
+      .filter((u) => u.canAct && !u.garrisonedIn)
+      .sort((a, b) => (b.def.cost || 0) - (a.def.cost || 0));
+
+    for (const u of units) this._actWith(u, report);
+    this.lastReport = report;
+    return report;
   }
 
-  _army() {
-    return this.w.unitsOf(this.owner).filter((u) => u.weapons.length && !u.def.harvester);
-  }
-
-  /** Keep the force mix close to the target weights. */
-  _produce() {
+  _produce(report) {
     const p = this.player;
-    const army = this._army();
+    const army = this.w.unitsOf(this.owner).filter((u) => u.weapons.length);
     if (army.length >= this.maxArmy) return;
 
     const counts = {};
     for (const u of army) counts[u.defId] = (counts[u.defId] || 0) + 1;
     const totalW = Object.values(this.composition).reduce((a, b) => a + b, 0);
 
-    // Biggest shortfall against the target ratio wins the next build slot.
-    let want = null, worst = -1;
+    // Build whatever the force is furthest short of, among things we can pay for.
+    let want = null, worst = -Infinity;
     for (const [id, weight] of Object.entries(this.composition)) {
       if (!this.w.canProduce(this.owner, id)) continue;
+      if (!this.w.canAfford(this.owner, id)) continue;
       const target = (weight / totalW) * Math.max(army.length + 1, 6);
       const deficit = target - (counts[id] || 0);
       if (deficit > worst) { worst = deficit; want = id; }
     }
-    if (!want) return;
-    // Keep a reserve so the Guard can always afford to replace a defence.
-    if (p.supply < defOf(want).cost + 120) return;
-    this.w.queueUnit(this.owner, want);
-  }
-
-  /** Put infantry into the buildings that overlook the approaches. */
-  _garrison() {
-    if (!this.garrisonPoints.length) return;
-    const infantry = this.w.unitsOf(this.owner)
-      .filter((u) => u.def.canGarrison && !u.garrisonedIn && u.isIdle());
-    if (!infantry.length) return;
-    for (const gp of this.garrisonPoints) {
-      const b = this.w.buildings.find((x) =>
-        x.alive && x.garrisonSlots > 0 && x.garrison.length < x.garrisonSlots &&
-        dist(x.cx, x.cy, gp.x, gp.y) < TILE * 3);
-      if (!b) continue;
-      // Send the nearest spare rifleman.
-      let best = null, bd = Infinity;
-      for (const u of infantry) {
-        if (u.order.type === Order.GARRISON) continue;
-        const d = dist2(u.x, u.y, b.cx, b.cy);
-        if (d < bd) { bd = d; best = u; }
-      }
-      if (best && bd < (TILE * 26) ** 2) {
-        best.orderGarrison(this.w, b.id);
-        return;                         // one at a time keeps it unhurried
-      }
+    if (want && this.w.queueUnit(this.owner, want).ok) {
+      report.push({ kind: 'queued', defId: want });
     }
   }
 
-  /** Anything hostile inside the perimeter gets the reserve thrown at it. */
-  _defend() {
-    if (!this.homePoint) return;
-    const R = TILE * 17;
-    let threat = null, bd = Infinity;
-    for (const u of this.w.units) {
-      if (!u.alive || !this.w.isHostile({ owner: this.owner }, u)) continue;
-      if (u.garrisonedIn || u.transport) continue;
-      const d = dist2(u.x, u.y, this.homePoint.x, this.homePoint.y);
-      if (d < R * R && d < bd) { bd = d; threat = u; }
-    }
-    if (!threat) return;
-    const responders = this._army().filter((u) =>
-      !this.strikeGroup.includes(u.id) && !u.garrisonedIn &&
-      (u.isIdle() || u.order.type === Order.MOVE) &&
-      dist2(u.x, u.y, this.homePoint.x, this.homePoint.y) < (R * 1.8) ** 2);
-    for (const u of responders.slice(0, 8)) u.orderAttack(this.w, threat.id);
-  }
+  _actWith(u, report) {
+    // 1. Engineers and capturers take anything undefended next to them.
+    if (u.def.abilities?.includes('capture') && this._tryCapture(u, report)) return;
 
-  /** Replace destroyed production and defensive structures when affordable. */
-  _rebuild() {
-    const p = this.player;
-    if (p.supply < 900) return;
-    for (const want of ['rg_barracks', 'rg_motor_pool']) {
-      if (this.w.hasBuilding(this.owner, want)) continue;
-      const hq = this.w.buildingsOf(this.owner).find((b) => b.def.isHQ);
-      if (!hq) return;
-      const d = defOf(want);
-      for (let r = 4; r < 12; r++) {
-        for (let a = 0; a < 12; a++) {
-          const ang = (a / 12) * TAU;
-          const tx = Math.round(hq.tx + hq.tw / 2 + Math.cos(ang) * r) - ((d.size[0] / 2) | 0);
-          const ty = Math.round(hq.ty + hq.th / 2 + Math.sin(ang) * r) - ((d.size[1] / 2) | 0);
-          if (this.w.startStructure(this.owner, want, tx, ty).ok) return;
-        }
-      }
-      return;
+    // 2. Shoot from where we stand if there is a worthwhile target.
+    const standing = this._bestTarget(u);
+    if (standing && standing.score >= 1.0) {
+      this._fire(u, standing.target, report);
+      if (!u.canAct) return;
+    }
+
+    // 3. Otherwise reposition, then shoot if the move opened a shot.
+    const moved = this._reposition(u, report);
+    if (moved && u.canAct) {
+      const after = this._bestTarget(u);
+      if (after) this._fire(u, after.target, report);
+    } else if (!standing) {
+      // Nothing to do and nowhere useful to go: dig in.
+      u.heldPosition = true;
     }
   }
 
-  /** Assemble a strike group at the staging point, then commit it. */
-  _offense() {
-    if (!this.attackTargets.length) return;
-
-    // Prune the group of anything that died.
-    this.strikeGroup = this.strikeGroup.filter((id) => {
-      const u = this.w.entityById(id);
-      return u && u.alive;
-    });
-
-    if (this.attacking) {
-      if (this.strikeGroup.length === 0) {
-        this.attacking = false;
-        return;
-      }
-      // Re-task any member that has gone idle after clearing its objective.
-      const target = this._pickTarget();
-      for (const id of this.strikeGroup) {
-        const u = this.w.entityById(id);
-        if (u && u.isIdle()) u.orderMove(this.w, target.x, target.y, true);
-      }
-      return;
+  _fire(u, target, report) {
+    const r = this.w.attack(u, target);
+    if (r.ok) {
+      report.push({ kind: 'attack', defId: u.defId, target: target.def.name, damage: Math.round(r.damage) });
     }
-
-    const free = this._army().filter((u) =>
-      !this.strikeGroup.includes(u.id) && !u.garrisonedIn && u.isIdle());
-    for (const u of free) {
-      this.strikeGroup.push(u.id);
-      if (this.staging) u.orderMove(this.w, this.staging.x, this.staging.y);
-    }
-
-    const needed = this.attackThreshold + this.waveCount;
-    if (this.strikeGroup.length >= needed) this.launchWave();
   }
 
-  _pickTarget() {
-    // Prefer a real objective; fall back to whatever of the player's is nearest
-    // the staging area so a wave never wanders aimlessly.
-    const alive = this.attackTargets.filter((t) => !t.id || this.w.entityById(t.id));
-    if (alive.length) return alive[this.waveCount % alive.length];
-    const from = this.staging || this.homePoint || { x: 0, y: 0 };
+  /** Score every legal shot by expected damage against what the target is worth. */
+  _bestTarget(u) {
+    const options = this.w.attackableTargets(u);
+    let best = null, bestScore = 0;
+    for (const t of options) {
+      const wi = u.pickWeapon(t, computeDamage);
+      const w = u.weapons[wi];
+      const expected = computeDamage(w.damage * (w.shots || 1), w.type, t.def.armor, {
+        entrench: t.entrench || 0,
+        garrisoned: !!t.garrisonedIn,
+        attackerRank: u.rank, defenderRank: t.rank || 0,
+      });
+      if (expected <= 0.5) continue;
+      const value = (t.def.cost || 60) / 60;
+      // Finishing a wounded unit is worth much more than chipping a fresh one.
+      const lethal = expected >= t.hp ? 2.5 : 1;
+      const threat = t.weapons?.length ? 1.3 : 0.8;
+      const score = (expected / Math.max(1, t.maxHp)) * value * lethal * threat * 10;
+      if (score > bestScore) { bestScore = score; best = t; }
+    }
+    return best ? { target: best, score: bestScore } : null;
+  }
+
+  /**
+   * Move toward the most useful place: a target we could shoot next turn, or
+   * the objective. Picks the reachable tile that best trades distance-to-goal
+   * against the cover it offers.
+   */
+  _reposition(u, report) {
+    const goal = this._goalFor(u);
+    if (!goal) return false;
+
+    const map = this.w.reachable(u);
+    if (map.size <= 1) return false;
+    const W = this.w.grid.w;
+
+    let bestTile = -1, bestScore = -Infinity;
+    for (const [idx, node] of map) {
+      const tx = idx % W, ty = (idx / W) | 0;
+      if (this.w.occupantAt(tx, ty, u)) continue;
+      const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
+      const d = Math.hypot(cx - goal.x, cy - goal.y) / TILE;
+
+      // Closing is good; cover is good; spending every point is not, because a
+      // unit with nothing left cannot shoot when it arrives.
+      const cover = this.w.grid.cover(tx, ty);
+      const apLeft = u.ap - node.ap;
+      const canStillFire = apLeft >= (u.weapons[0]?.attackAp ?? 99) ? 1.5 : 0;
+      const score = -d * 1.0 + cover * 4 + canStillFire * 2;
+      if (score > bestScore) { bestScore = score; bestTile = idx; }
+    }
+    if (bestTile < 0) return false;
+    const tx = bestTile % W, ty = (bestTile / W) | 0;
+    if (Math.floor(u.x / TILE) === tx && Math.floor(u.y / TILE) === ty) return false;
+
+    const r = this.w.moveUnit(u, tx, ty);
+    if (r.ok) {
+      u.finishMove(this.w);          // the AI resolves instantly; no animation wait
+      report.push({ kind: 'move', defId: u.defId });
+      return true;
+    }
+    return false;
+  }
+
+  _goalFor(u) {
+    // Defend the base if something hostile is inside the perimeter.
+    if (this.homePoint) {
+      const R = TILE * 16;
+      let threat = null, bd = Infinity;
+      for (const e of this.w.units) {
+        if (!e.alive || !this.w.isHostile(u, e)) continue;
+        const d = dist2(e.x, e.y, this.homePoint.x, this.homePoint.y);
+        if (d < R * R && d < bd) { bd = d; threat = e; }
+      }
+      if (threat) return { x: threat.x, y: threat.y };
+    }
+
+    // Otherwise close on the nearest thing of the player's we can actually hurt.
     let best = null, bd = Infinity;
+    for (const e of [...this.w.units, ...this.w.buildings]) {
+      if (!e.alive || !this.w.isHostile(u, e)) continue;
+      if (e.kind === 'building' && e.def.civilian) continue;
+      const ex = e.cx ?? e.x, ey = e.cy ?? e.y;
+      const d = dist2(u.x, u.y, ex, ey) * (e.kind === 'building' ? 1.6 : 1);
+      if (d < bd) { bd = d; best = { x: ex, y: ey }; }
+    }
+    if (best && this.aggression > 0.25) return best;
+    return this.objectives.length ? this.objectives[0] : best;
+  }
+
+  _tryCapture(u, report) {
     for (const b of this.w.buildings) {
-      if (!b.alive || b.owner === this.owner || b.owner < 0) continue;
-      const d = dist2(b.cx, b.cy, from.x, from.y);
-      if (d < bd) { bd = d; best = { x: b.cx, y: b.cy }; }
+      if (!b.alive || b.owner === this.owner) continue;
+      if (!b.def.capturable) continue;
+      if (b.edgeDistance(u.x, u.y) > TILE * 1.6) continue;
+      if (this.w.capture(u, b).ok) {
+        report.push({ kind: 'capture', name: b.def.name });
+        return true;
+      }
     }
-    for (const u of this.w.units) {
-      if (!u.alive || u.owner === this.owner) continue;
-      const d = dist2(u.x, u.y, from.x, from.y) * 1.6;   // structures preferred
-      if (d < bd) { bd = d; best = { x: u.x, y: u.y }; }
-    }
-    return best || from;
+    return false;
   }
 
-  launchWave(extraUnits = []) {
-    for (const u of extraUnits) if (u && u.alive) this.strikeGroup.push(u.id);
-    if (!this.strikeGroup.length) return false;
-    const target = this._pickTarget();
-    const units = this.strikeGroup.map((id) => this.w.entityById(id)).filter(Boolean);
-    this.w.issueMove(units, target.x, target.y, true);
-    this.attacking = true;
-    this.waveCount++;
-    return true;
-  }
-
-  /** Mission scripting hook: drop a formation on the map and send it in. */
-  spawnWave(spec, x, y, target) {
+  /** Mission scripting hook: drop a formation onto the map. */
+  spawnWave(spec, tx, ty) {
     const spawned = [];
     let i = 0;
     for (const [defId, count] of Object.entries(spec)) {
       for (let k = 0; k < count; k++) {
-        const a = (i / 8) * TAU;
-        const r = 20 + (i % 5) * 26;
-        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
-        const tile = this.w.grid.nearestPassable(
-          Math.floor(px / TILE), Math.floor(py / TILE), defOf(defId).loco, 8);
-        if (!tile) continue;
+        const d = defOf(defId);
+        let placed = null;
+        for (let r = 0; r < 8 && !placed; r++) {
+          for (let a = 0; a < 12 && !placed; a++) {
+            const ang = (a / 12) * Math.PI * 2;
+            const px = Math.round(tx + Math.cos(ang) * r);
+            const py = Math.round(ty + Math.sin(ang) * r);
+            if (!this.w.grid.passable(px, py, d.loco)) continue;
+            if (this.w.occupantAt(px, py, { isAir: d.category === Category.AIR })) continue;
+            placed = { px, py };
+          }
+        }
+        if (!placed) continue;
         const u = this.w.spawnUnit(defId, this.owner,
-          tile.tx * TILE + TILE / 2, tile.ty * TILE + TILE / 2, Math.PI);
+          placed.px * TILE + TILE / 2, placed.py * TILE + TILE / 2, Math.PI);
+        u.ap = 0;                     // arrives having used its turn
         spawned.push(u);
         i++;
       }
     }
-    if (target) this.w.issueMove(spawned, target.x, target.y, true);
-    else { this.strikeGroup.push(...spawned.map((u) => u.id)); }
     return spawned;
   }
 }
