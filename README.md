@@ -1,5 +1,8 @@
 # Operation Iraqi Freedom — Task Force Talon
 
+**Play it: https://82alltheway504-boop.github.io/Iraqi-freedom/**
+(turn your phone sideways, then Share → Add to Home Screen to install it)
+
 A tactical real-time strategy prototype in the Command & Conquer tradition, set
 during the 2003 advance up Highway 8. Playable in a browser, built phone-first
 for touch.
@@ -47,6 +50,14 @@ The app installs from any HTTPS host. `.github/workflows/pages.yml` deploys it
 to GitHub Pages on every push, including a guard that fails the build if an
 absolute path ever creeps in — a Pages project site serves from `/<repo>/`, so
 a leading-slash path would 404 there while working perfectly in local testing.
+
+The workflow deploys by pushing the built site to a `gh-pages` branch rather
+than through the Pages deployment API. The API route requires the Actions token
+to be able to create the Pages site, which it is not permitted to do
+(`Resource not accessible by integration`) even on a public repository;
+pushing a branch needs only `contents: write`. Pushing a `gh-pages` branch to
+a public repo also provisions Pages by itself, so this works from a cold start
+without anyone touching repository settings.
 `npm run test:pwa` verifies the whole install path from a subdirectory: the
 manifest the browser actually parsed, the service worker's registered scope,
 every icon iOS and Android ask for, and that the game still plays with the

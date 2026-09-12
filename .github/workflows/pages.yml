@@ -1,9 +1,12 @@
-# Publishes the game to GitHub Pages so it can be installed as a home-screen
-# app. Pages needs HTTPS, which is what makes the service worker (and therefore
-# offline play) work at all.
+# Publishes the game to GitHub Pages on every push.
 #
-# Requires Pages to be available for this repository: public repos on any plan,
-# private repos only on GitHub Pro or above.
+# This deploys by pushing the built site to the `gh-pages` branch rather than
+# using the Pages deployment API. The API route needs the Actions token to be
+# able to create the Pages site, which it is not permitted to do here
+# ("Resource not accessible by integration"), whereas pushing a branch only
+# needs `contents: write` — which it has. Pushing a gh-pages branch to a public
+# repository also provisions Pages on its own, so this works from a cold start
+# with no repository settings touched by hand.
 name: Deploy to GitHub Pages
 
 on:
@@ -12,11 +15,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Never let two deploys race; always finish the one in flight.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -24,9 +24,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +35,7 @@ jobs:
           cp index.html styles.css manifest.webmanifest sw.js _site/
           cp icon.svg icon-180.png icon-512.png icon-maskable.png _site/
           cp -r src _site/
+          touch _site/.nojekyll
           echo "Deploying $(find _site -type f | wc -l) files, $(du -sh _site | cut -f1)"
 
       - name: Verify nothing depends on being at the domain root
@@ -50,13 +48,19 @@ jobs:
           fi
           echo "All paths are relative."
 
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Publish to the gh-pages branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.email "noreply@anthropic.com"
+          git config user.name "Claude"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA:0:7}
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          Runtime-only build. All paths are relative so the site works from the
+          project subpath."
+          git push --force --quiet \
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          echo "Published to https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
