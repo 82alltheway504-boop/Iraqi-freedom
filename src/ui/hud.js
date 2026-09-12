@@ -1,6 +1,11 @@
-import { UNITS, BUILDINGS, POWERS } from '../sim/defs.js';
-import { ARMOR_NAMES, DAMAGE_NAMES, VET_RANKS, roeTier } from '../sim/rules.js';
+import { UNITS, BUILDINGS, ROSTER, defOf, weaponsOf } from '../sim/defs.js';
+import {
+  ARMOR_NAMES, DAMAGE_NAMES, VET_RANKS, Category, CATEGORY_INFO,
+  Res, RESOURCE_INFO, UPKEEP_RESOURCE,
+} from '../sim/rules.js';
+import { roeTier } from '../sim/world.js';
 import { TILE } from '../world/terrain.js';
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -8,40 +13,37 @@ const el = (tag, cls, text) => {
   if (text != null) n.textContent = text;
   return n;
 };
-const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-// What the player can build, in the order it should appear.
-const BUILD_ORDER = ['command_post', 'generator', 'supply_depot', 'barracks',
-  'motor_pool', 'comm_center', 'mg_nest', 'at_gun', 'barrier'];
-const TRAIN_ORDER = ['rifle_squad', 'at_team', 'engineer', 'supply_truck',
-  'humvee', 'ifv', 'mbt'];
 
 // The contextual order bar. `when` decides whether a button is offered at all.
 const COMMANDS = [
-  { id: 'amove',    icon: 'attack',   key: 'A', label: 'Attack-move',
-    when: (s) => s.units.some((u) => u.weapons.length) },
-  { id: 'attack',   icon: 'move',     key: 'F', label: 'Force fire',
-    when: (s) => s.units.some((u) => u.weapons.length) },
-  { id: 'garrison', icon: 'garrison', key: 'G', label: 'Garrison building',
-    when: (s) => s.units.some((u) => u.def.canGarrison) },
-  { id: 'capture',  icon: 'capture',  key: 'C', label: 'Capture structure',
+  { id: 'attack', icon: 'attack', key: 'A', label: 'Attack',
+    when: (s, g) => s.units.some((u) => u.weapons.length && u.canAct) },
+  { id: 'capture', icon: 'capture', key: 'C', label: 'Capture',
     when: (s) => s.units.some((u) => u.def.abilities?.includes('capture')) },
-  { id: 'repair',   icon: 'repair',   key: 'R', label: 'Repair structure',
-    when: (s) => s.units.some((u) => u.def.abilities?.includes('repair')) },
-  { id: 'unload',   icon: 'unload',   key: 'U', label: 'Unload passengers',
+  { id: 'fortify', icon: 'repair', key: 'F', label: 'Dig works',
+    when: (s) => s.units.some((u) => u.def.abilities?.includes('fortify')) },
+  { id: 'garrison', icon: 'garrison', key: 'G', label: 'Garrison',
+    when: (s) => s.units.some((u) => u.def.canGarrison) },
+  { id: 'load', icon: 'unload', key: 'L', label: 'Board transport',
+    when: (s) => s.units.some((u) => u.def.liftable || u.def.canGarrison) },
+  { id: 'unload', icon: 'unload', key: 'U', label: 'Unload',
     when: (s) => s.units.some((u) => u.cargo.length) },
-  { id: 'hold',     icon: 'hold',     key: 'H', label: 'Hold position',
-    when: (s) => s.units.length > 0 },
-  { id: 'stop',     icon: 'stop',     key: 'S', label: 'Stop',
-    when: (s) => s.units.length > 0 || s.buildings.length > 0 },
-  { id: 'sell',     icon: 'sell',     key: 'K', label: 'Sell structure',
+  { id: 'resupply', icon: 'repair', key: 'R', label: 'Resupply',
+    when: (s) => s.units.some((u) => u.def.resupply) },
+  { id: 'paradrop', icon: 'air', key: 'P', label: 'Paradrop',
+    when: (s) => s.units.some((u) => u.def.paradrop && !u.hasParadropped) },
+  { id: 'dig', icon: 'hold', key: 'H', label: 'Dig in / hold',
+    when: (s) => s.units.some((u) => u.def.entrenches && u.canAct) },
+  { id: 'done', icon: 'stop', key: 'S', label: 'Done with this unit',
+    when: (s) => s.units.some((u) => u.canAct) },
+  { id: 'sell', icon: 'sell', key: 'K', label: 'Demolish',
     when: (s) => s.buildings.some((b) => !b.def.isHQ && b.owner === 0) },
 ];
 
 export class Hud {
   constructor(game) {
     this.game = game;
-    this.tab = 'units';
+    this.tab = 'infantry';
     this.cards = new Map();
     this.cmdButtons = new Map();
     this.notices = [];
@@ -49,14 +51,12 @@ export class Hud {
     this.lastObjSig = '';
     this.lastPaletteSig = '';
     this.hintTimer = 0;
-    // Alert state driving the blinking HUD elements.
     this.alert = { attackUntil: 0, lastPing: 0, attackAnnounced: 0, freshUntil: 0 };
-    this._readyPowers = new Set();
-    this._lastQueueCount = 0;
     this._build();
   }
 
   get world() { return this.game.world; }
+  get turns() { return this.game.turns; }
 
   _iconCanvas(name, size = 46) {
     const src = this.game.art.icons[name];
@@ -71,12 +71,13 @@ export class Hud {
 
   _build() {
     $('hud').hidden = false;
+    // The objectives panel swallows taps on the ground beneath it, so on any
+    // phone-sized screen it starts folded to one line. The list is a tap away
+    // on its header, and also sits on the pause sheet.
+    if (window.innerWidth < 900 || window.innerHeight < 520) {
+      $('objectives').classList.add('collapsed');
+    }
 
-    // On a narrow screen the objectives list would cover most of the
-    // battlefield, so it starts folded. The header taps open.
-    if (window.innerWidth < 640) $('objectives').classList.add('collapsed');
-
-    // Objectives panel collapses on tap — screen space is scarce on a phone.
     $('objHeader').addEventListener('click', () => {
       $('objectives').classList.toggle('collapsed');
       this.acknowledgeObjectives();
@@ -95,96 +96,92 @@ export class Hud {
 
     $('btnMenu').addEventListener('click', () => this.game.togglePause());
     $('btnSound').addEventListener('click', () => {
-      const muted = this.game.toggleSound();
-      $('btnSound').classList.toggle('off', muted);
+      $('btnSound').classList.toggle('off', this.game.toggleSound());
     });
+    $('btnCommander').addEventListener('click', () => this.game.showCommander());
+    $('btnEndTurn').addEventListener('click', () => this.game.endTurn());
 
-    // Command bar.
     const bar = $('cmdbar');
     for (const c of COMMANDS) {
       const b = el('button', 'cmd');
       b.appendChild(this._iconCanvas(c.icon));
       b.title = `${c.label} (${c.key})`;
       b.setAttribute('aria-label', c.label);
-      const kb = el('span', 'kb', c.key);
-      b.appendChild(kb);
+      b.appendChild(el('span', 'kb', c.key));
       b.addEventListener('click', () => { this.game.command(c.id); this.game.audio.uiTap(); });
       b.hidden = true;
       bar.appendChild(b);
       this.cmdButtons.set(c.id, b);
     }
 
-    // Minimap navigation.
     const mm = $('minimap');
     const nav = (e) => {
-      const p = e.touches ? e.touches[0] : e;
-      const w = this.game.minimap.toWorld(p.clientX, p.clientY);
+      const w = this.game.minimap.toWorld(e.clientX, e.clientY);
       this.game.camera.centerOn(w.x, w.y);
     };
     mm.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); mm.setPointerCapture(e.pointerId); this._mmDrag = true; nav(e);
+      e.preventDefault(); mm.setPointerCapture?.(e.pointerId); this._mmDrag = true; nav(e);
     });
     mm.addEventListener('pointermove', (e) => { if (this._mmDrag) { e.preventDefault(); nav(e); } });
     mm.addEventListener('pointerup', () => { this._mmDrag = false; });
     mm.addEventListener('pointercancel', () => { this._mmDrag = false; });
+
+    // The turn banner lives above the canvas but outside the HUD grid.
+    this.banner = el('div', '');
+    this.banner.id = 'turnBanner';
+    $('hud').appendChild(this.banner);
+  }
+
+  announceTurn(text, mine) {
+    this.banner.textContent = text;
+    this.banner.className = mine ? 'mine show' : 'enemy show';
+    clearTimeout(this._bannerTimer);
+    this._bannerTimer = setTimeout(() => this.banner.classList.remove('show'), 1500);
   }
 
   // --- palette --------------------------------------------------------------
   _paletteItems() {
     const w = this.world;
     const me = w.humanIndex;
-    if (this.tab === 'units') {
-      return TRAIN_ORDER.filter((id) => UNITS[id]).map((id) => {
-        const d = UNITS[id];
-        const can = w.canProduce(me, id);
-        const queued = w.buildings.reduce((n, b) =>
-          n + (b.owner === me ? b.queue.filter((j) => j.defId === id).length : 0), 0);
-        const job = w.buildings.flatMap((b) => (b.owner === me ? b.queue : []))
-          .find((j) => j.defId === id);
-        return {
-          key: `u:${id}`, id, icon: id, cost: d.cost, name: d.name,
-          enabled: can && w.human.supply >= d.cost,
-          dim: !can, queued, progress: job ? job.progress : 0, kind: 'unit',
-        };
-      });
-    }
-    if (this.tab === 'build') {
-      return BUILD_ORDER.filter((id) => BUILDINGS[id]).map((id) => {
-        const d = BUILDINGS[id];
-        const cost = w.structureCost(me, id);
-        const can = w.canBuildStructure(me, id);
-        return {
-          key: `b:${id}`, id, icon: id, cost, name: d.name,
-          enabled: can && w.human.supply >= cost,
-          dim: !can, queued: 0, progress: 0, kind: 'building',
-          selected: this.game.placing === id,
-        };
-      });
-    }
-    return Object.values(POWERS).map((p) => {
-      const unlocked = w.human.unlocked.has(p.id);
-      const ready = w.powerReady(me, p.id);
-      const frac = unlocked ? w.powerCooldownFrac(me, p.id) : 0;
-      const end = w.human.powerCooldowns[p.id] || 0;
+    const list = ROSTER[this.tab] || [];
+    return list.map((id) => {
+      const d = defOf(id);
+      const cost = w.costOf(me, id);
+      const isStruct = d.category === Category.STRUCTURE;
+      const can = isStruct ? this._canBuild(id) : w.canProduce(me, id);
+      const afford = w.players[me].res[d.res] >= cost;
+      const queued = isStruct ? 0 : w.buildings.reduce(
+        (n, b) => n + (b.owner === me ? b.queue.filter((j) => j.defId === id).length : 0), 0);
+      const job = isStruct ? null : w.buildings.flatMap((b) => (b.owner === me ? b.queue : []))
+        .find((j) => j.defId === id);
       return {
-        key: `p:${p.id}`, id: p.id, icon: p.icon, cost: null, name: p.name,
-        enabled: unlocked && ready, dim: !unlocked, queued: 0, progress: 0,
-        kind: 'power', cooldown: ready ? 0 : Math.max(0, end - w.time), frac,
-        selected: this.game.targeting === p.id,
+        key: id, id, icon: id, cost, res: d.res, name: d.name,
+        enabled: can && afford, dim: !can, queued,
+        progress: job ? 1 - job.turnsLeft / job.total : 0,
+        turns: d.buildTurns, kind: isStruct ? 'building' : 'unit',
+        selected: this.game.placing === id,
       };
     });
+  }
+
+  _canBuild(id) {
+    const w = this.world;
+    const d = defOf(id);
+    if (d.fieldBuild && this.game.fortifyMode) return true;
+    if (!d.isHQ && !w.buildings.some((b) => b.alive && b.built && b.owner === 0 && b.def.isHQ)) return false;
+    if (d.requires) for (const r of d.requires) if (!w.hasBuilding(0, r)) return false;
+    return true;
   }
 
   _syncPalette() {
     const items = this._paletteItems();
     const sig = items.map((i) =>
-      `${i.key}|${i.enabled}|${i.dim}|${i.queued}|${i.progress.toFixed(2)}|${i.selected}|${(i.cooldown || 0) | 0}|${i.cost}`
+      `${i.key}|${i.enabled}|${i.dim}|${i.queued}|${i.progress.toFixed(2)}|${i.selected}|${i.cost}`
     ).join(',') + '|' + this.tab;
     if (sig === this.lastPaletteSig) return;
     this.lastPaletteSig = sig;
 
     const pal = $('palette');
-    // Rebuild only when the set of cards changes; otherwise patch in place.
     const keys = items.map((i) => i.key).join(',');
     if (this._cardKeys !== keys) {
       this._cardKeys = keys;
@@ -197,15 +194,15 @@ export class Hud {
         card.appendChild(cost);
         const qty = el('div', 'qty'); qty.hidden = true; card.appendChild(qty);
         const prog = el('div', 'prog'); card.appendChild(prog);
-        const cd = el('div', 'cd'); cd.hidden = true; card.appendChild(cd);
-        card.title = it.name;
+        const d = defOf(it.id);
+        card.title = `${it.name} — ${it.cost} ${RESOURCE_INFO[it.res].name}, ${it.turns} turn${it.turns > 1 ? 's' : ''}\n${d.desc || ''}`;
         card.addEventListener('click', () => this.game.paletteClick(it.kind, it.id));
         card.addEventListener('contextmenu', (e) => {
           e.preventDefault();
           if (it.kind === 'unit') this.game.cancelQueued(it.id);
         });
         pal.appendChild(card);
-        this.cards.set(it.key, { card, cost, qty, prog, cd });
+        this.cards.set(it.key, { card, cost, qty, prog });
       }
     }
     for (const it of items) {
@@ -213,17 +210,11 @@ export class Hud {
       if (!c) continue;
       c.card.classList.toggle('disabled', !it.enabled);
       c.card.classList.toggle('selected', !!it.selected);
-      c.cost.textContent = it.cost == null ? it.name.split(' ')[0].toUpperCase()
-        : it.cost === 0 ? 'FREE' : it.cost;
-      c.qty.hidden = it.queued <= 1;
+      c.cost.textContent = it.cost === 0 ? 'FREE' : it.cost;
+      c.cost.style.color = RESOURCE_INFO[it.res].color;
+      c.qty.hidden = it.queued < 1;
       c.qty.textContent = it.queued;
       c.prog.style.width = `${(it.progress || 0) * 100}%`;
-      const cooling = (it.cooldown || 0) > 0;
-      c.cd.hidden = !cooling;
-      if (cooling) c.cd.textContent = Math.ceil(it.cooldown);
-      // A support power that has just become available pulses until used.
-      c.card.classList.toggle('ready',
-        it.kind === 'power' && it.enabled && !it.selected);
     }
   }
 
@@ -235,17 +226,12 @@ export class Hud {
     this.lastObjSig = sig;
     const ul = $('objList');
     ul.textContent = '';
-    const now = this.game.mission.time;
     for (const o of list) {
-      const fresh = o.state === 'done' && now - (o.doneAt ?? -99) < 3;
-      const urgent = o.state === 'active' && o.id === 'hold' &&
-        (this.game.mission.nextWaveIn?.() ?? 99) < 15;
-      const li = el('li',
-        `${o.state}${o.optional ? ' opt' : ''}${fresh ? ' justdone' : ''}${urgent ? ' urgent' : ''}`);
+      const urgent = o.id === 'hold' && o.state === 'active' && (mission.nextWaveIn?.() ?? 99) <= 1;
+      const li = el('li', `${o.state}${o.optional ? ' opt' : ''}${urgent ? ' urgent' : ''}`);
       li.appendChild(el('span', 'mk',
         o.state === 'done' ? '✓' : o.state === 'failed' ? '✕' : '▸'));
-      const tx = el('span', 'tx', o.text);
-      li.appendChild(tx);
+      li.appendChild(el('span', 'tx', o.text));
       if (o.progress && o.state === 'active') li.appendChild(el('span', 'pg', o.progress));
       ul.appendChild(li);
     }
@@ -264,8 +250,7 @@ export class Hud {
 
     for (const [id, btn] of this.cmdButtons) {
       const c = COMMANDS.find((x) => x.id === id);
-      const show = ents.length > 0 && c.when({ units, buildings });
-      btn.hidden = !show;
+      btn.hidden = !(ents.length && this.turns.isPlayerTurn && c.when({ units, buildings }, this.game));
       btn.classList.toggle('on', this.game.pendingCommand === id);
     }
 
@@ -280,33 +265,54 @@ export class Hud {
       if (e.kind === 'unit' && e.rank > 0) {
         nm.appendChild(el('span', 'rank', VET_RANKS[e.rank].name.toUpperCase()));
       }
+      nm.appendChild(el('span', `cat ${d.category}`, CATEGORY_INFO[d.category].short));
       box.appendChild(nm);
       box.appendChild(el('div', 'sub', d.desc || ''));
+
+      if (e.kind === 'unit') {
+        const ap = el('div', 'ap');
+        for (let i = 0; i < Math.min(e.apMax, 14); i++) {
+          ap.appendChild(el('i', i < e.ap ? '' : 'spent'));
+        }
+        ap.appendChild(el('span', 'txt', `${e.ap}/${e.apMax} AP`));
+        box.appendChild(ap);
+      }
+
       const bars = el('div', 'bars');
       bars.appendChild(el('span', 'chip', `${Math.round(e.hp)}/${e.maxHp} HP`));
       bars.appendChild(el('span', 'chip', ARMOR_NAMES[d.armor]));
-      const weapons = e.kind === 'unit' ? e.weapons : (d.weapon ? [d.weapon] : []);
-      for (const wp of weapons) {
+      if (e.kind === 'unit') {
+        bars.appendChild(el('span', 'chip',
+          `${d.upkeep} ${RESOURCE_INFO[UPKEEP_RESOURCE[d.category]].short}/turn`));
+      }
+      for (const wp of weaponsOf(d)) {
+        const r = Math.round(wp.range / TILE);
         bars.appendChild(el('span', 'chip hot',
-          `${DAMAGE_NAMES[wp.type]} ${Math.round(wp.damage * (wp.shots || 1) / wp.cooldown)}/s`));
+          `${DAMAGE_NAMES[wp.type]} ${wp.damage * (wp.shots || 1)} · ${r}t · ${wp.attackAp}AP`));
       }
-      if (e.kind === 'unit' && e.def.carry) {
-        bars.appendChild(el('span', 'chip', `Carrying ${Math.round(e.carrying)}/${e.def.carry}`));
-      }
-      if (e.kind === 'unit' && e.def.cargoSpace) {
-        bars.appendChild(el('span', 'chip', `Cargo ${e.cargo.length}/${e.def.cargoSpace}`));
-      }
-      if (e.kind === 'building' && d.power) {
-        bars.appendChild(el('span', 'chip', `${d.power > 0 ? '+' : ''}${d.power} power`));
-      }
+      if (e.entrench > 0) bars.appendChild(el('span', 'chip', `Dug in ${e.entrench.toFixed(1)}`));
+      if (e.starved) bars.appendChild(el('span', 'chip', 'STARVED'));
+      if (d.sorties) bars.appendChild(el('span', 'chip', `${e.sorties} sortie(s)`));
+      if (d.cargoSpace) bars.appendChild(el('span', 'chip', `Cargo ${e.cargo.length}/${d.cargoSpace}`));
       if (e.kind === 'building' && e.garrisonSlots) {
         bars.appendChild(el('span', 'chip', `Garrison ${e.garrison.length}/${e.garrisonSlots}`));
+      }
+      if (e.kind === 'building' && !e.built) {
+        bars.appendChild(el('span', 'chip hot', `${e.turnsLeft} turn(s) to build`));
+      }
+      if (e.kind === 'building' && e.def.yields) {
+        bars.appendChild(el('span', 'chip hot',
+          `+${e.def.yieldAmount} ${RESOURCE_INFO[e.def.yields].short}/turn`));
       }
       box.appendChild(bars);
     } else {
       const counts = {};
-      for (const e of ents) counts[e.def.name] = (counts[e.def.name] || 0) + 1;
-      box.appendChild(el('div', 'nm', `${ents.length} units selected`));
+      let ready = 0;
+      for (const e of ents) {
+        counts[e.def.name] = (counts[e.def.name] || 0) + 1;
+        if (e.kind === 'unit' && e.canAct) ready++;
+      }
+      box.appendChild(el('div', 'nm', `${ents.length} selected · ${ready} can still act`));
       const bars = el('div', 'bars');
       for (const [name, n] of Object.entries(counts).slice(0, 6)) {
         bars.appendChild(el('span', 'chip', `${n} × ${name}`));
@@ -316,51 +322,36 @@ export class Hud {
   }
 
   // --- notices --------------------------------------------------------------
-  /**
-   * Radio traffic is shown one line at a time from a queue. Stacking four of
-   * them covered the middle of a phone screen, which is exactly where the
-   * player is trying to look.
-   */
   pushNotice(text, kind = 'info') {
     this.noticeQueue.push({ text, kind });
-    // Urgent traffic jumps the queue and clears what is on screen.
     if (kind === 'bad' && this.notices.length) this._clearNotices();
     if (this.noticeQueue.length > 6) this.noticeQueue.splice(0, this.noticeQueue.length - 6);
     this._pumpNotices();
   }
-
-  _clearNotices() {
-    for (const n of this.notices) n.node.remove();
-    this.notices.length = 0;
-  }
-
+  _clearNotices() { for (const n of this.notices) n.node.remove(); this.notices.length = 0; }
   _pumpNotices() {
     if (this.notices.length || !this.noticeQueue.length) return;
     const { text, kind } = this.noticeQueue.shift();
     const n = el('div', `notice ${kind}`, text);
     $('notices').appendChild(n);
-    // Long radio calls stay up a little longer so they can be read.
-    const life = 2.6 + Math.min(3.4, text.length / 34);
-    this.notices.push({ node: n, life });
+    this.notices.push({ node: n, life: 2.6 + Math.min(3.6, text.length / 32) });
   }
 
-  /** A new objective blinks the panel until the player looks at it. */
   flagNewObjective() { this.alert.freshUntil = performance.now() / 1000 + 12; }
   acknowledgeObjectives() {
     this.alert.freshUntil = 0;
     $('objectives').classList.remove('fresh');
   }
 
-  /** Restart the "not enough supply" flash on the resource read-out. */
-  flashSupply() {
-    const n = $('statSupply');
+  flashResource(res) {
+    const n = $(`stat${res[0].toUpperCase()}${res.slice(1)}`);
+    if (!n) return;
     n.classList.remove('short');
-    void n.offsetWidth;            // force the animation to restart
+    void n.offsetWidth;
     n.classList.add('short');
-    setTimeout(() => n.classList.remove('short'), 1600);
+    setTimeout(() => n.classList.remove('short'), 1800);
   }
 
-  /** Something of ours is being shot at — blink the minimap and ping it. */
   reportAttack(x, y, now) {
     this.alert.attackUntil = now + 4;
     if (now - this.alert.lastPing < 1.1) return;
@@ -371,35 +362,13 @@ export class Hud {
     ping.style.top = `${(y / (this.world.grid.h * TILE)) * 100}%`;
     wrap.appendChild(ping);
     setTimeout(() => ping.remove(), 1200);
-    if (now - this.alert.attackAnnounced > 12) {
-      this.alert.attackAnnounced = now;
-      this.game.audio.alert();
-      this.pushNotice('Base under attack.', 'bad');
-    }
   }
 
-  hint(text, seconds = 2.4) {
+  hint(text, seconds = 2.6) {
     const h = $('hint');
     h.textContent = text;
     h.classList.add('show');
     this.hintTimer = seconds;
-  }
-
-  /** Look for friendly entities that have been hit in the last two seconds. */
-  _scanForAttacks(now) {
-    const w = this.world;
-    const me = w.humanIndex;
-    const recent = w.time - 2;
-    let hit = null;
-    for (const b of w.buildings) {
-      if (b.owner === me && b.alive && b.lastHitAt > recent) { hit = b; break; }
-    }
-    if (!hit) {
-      for (const u of w.units) {
-        if (u.owner === me && u.alive && u.lastHitAt > recent) { hit = u; break; }
-      }
-    }
-    if (hit) this.reportAttack(hit.x, hit.y, now);
   }
 
   // --- per-frame ------------------------------------------------------------
@@ -407,32 +376,47 @@ export class Hud {
     const w = this.world;
     const p = w.human;
 
-    $('supplyVal').textContent = Math.floor(p.supply).toLocaleString();
-    const bal = p.powerBalance;
-    $('powerVal').textContent = `${p.powerGen}/${p.powerUse}`;
-    $('statPower').classList.toggle('low', bal < 0);
+    for (const r of Object.values(Res)) {
+      const cap = r[0].toUpperCase() + r.slice(1);
+      $(`${r}Val`).textContent = Math.floor(p.res[r]).toLocaleString();
+      const net = (p.lastIncome?.[r] || 0) - (p.lastUpkeep?.[r] || 0);
+      const d = $(`${r}Delta`);
+      d.textContent = net === 0 ? '' : (net > 0 ? `+${net}` : `${net}`);
+      d.className = `delta ${net > 0 ? 'up' : net < 0 ? 'down' : ''}`;
+      $(`stat${cap}`).classList.toggle('short', !!p.deficits?.[r]);
+    }
 
     const tier = roeTier(p.support);
     const fill = $('supportFill');
     fill.style.width = `${p.support}%`;
-    fill.style.background = p.support >= 80 ? 'var(--good)'
-      : p.support >= 50 ? 'var(--warn)' : 'var(--bad)';
-    $('supportVal').textContent = `${Math.round(p.support)}%`;
-    $('statSupport').title = `Local Support — ${tier.name}: ${tier.blurb}`;
-
-    $('clockVal').textContent = mmss(mission.time);
-
-    // --- blinking alerts -------------------------------------------------
-    const now = performance.now() / 1000;
-    // Local Support in the danger band.
+    fill.style.background = p.support >= 80 ? 'var(--good)' : p.support >= 50 ? 'var(--warn)' : 'var(--bad)';
+    $('statSupport').title = `Local Support ${Math.round(p.support)}% — ${tier.name}: ${tier.blurb}`;
     $('statSupport').classList.toggle('critical', p.support < 50);
-    // A counterattack about to land turns the clock into a warning.
+
+    $('turnVal').textContent = this.turns.turn;
+
+    const cmd = w.commander;
+    if (cmd) {
+      $('cmdRank').textContent = cmd.rankCode;
+      const pip = $('cmdPoints');
+      pip.hidden = cmd.availablePoints <= 0;
+      pip.textContent = cmd.availablePoints;
+    }
+
+    // End-turn button: pulses once every unit has spent its points.
+    const btn = $('btnEndTurn');
+    const pending = this.turns.isPlayerTurn
+      ? w.unitsOf(0).filter((u) => u.canAct && !u.garrisonedIn).length : 0;
+    btn.disabled = !this.turns.isPlayerTurn || this.game.busy;
+    btn.classList.toggle('ready', this.turns.isPlayerTurn && pending === 0);
+    $('endTurnHint').textContent = !this.turns.isPlayerTurn ? 'Guard moving'
+      : pending ? `${pending} still to act` : 'all units done';
+
+    const now = performance.now() / 1000;
     const due = mission.nextWaveIn ? mission.nextWaveIn() : null;
-    $('statClock').classList.toggle('warn', due != null && due < 15);
-    // Anything of ours taking fire pings the minimap.
+    $('statTurn').classList.toggle('warn', due != null && due <= 1);
     this._scanForAttacks(now);
     $('minimapWrap').classList.toggle('attack', now < this.alert.attackUntil);
-    // A new objective keeps the panel lit until it is acknowledged.
     $('objectives').classList.toggle('fresh', now < this.alert.freshUntil);
 
     this._syncObjectives(mission);
@@ -451,6 +435,15 @@ export class Hud {
       if (this.hintTimer <= 0) $('hint').classList.remove('show');
     }
   }
+
+  _scanForAttacks(now) {
+    const w = this.world;
+    const recent = w.time - 2;
+    let hit = null;
+    for (const b of w.buildings) if (b.owner === 0 && b.alive && b.lastHitAt > recent) { hit = b; break; }
+    if (!hit) for (const u of w.units) if (u.owner === 0 && u.alive && u.lastHitAt > recent) { hit = u; break; }
+    if (hit) this.reportAttack(hit.x, hit.y, now);
+  }
 }
 
-export { $, el, mmss };
+export { $, el };

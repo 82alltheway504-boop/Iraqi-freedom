@@ -3,9 +3,15 @@
 **Play it: https://82alltheway504-boop.github.io/Iraqi-freedom/**
 (turn your phone sideways, then Share → Add to Home Screen to install it)
 
-A tactical real-time strategy prototype in the Command & Conquer tradition, set
-during the 2003 advance up Highway 8. Playable in a browser, built phone-first
-for touch.
+A **turn-based** tactical strategy prototype in the Command & Conquer tradition,
+set during the 2003 advance up Highway 8. Playable in a browser, built
+phone-first for touch.
+
+Every unit spends a pool of action points on movement *and* fire, so a turn is
+one plan per unit rather than one action per unit. Three separate economies —
+water for infantry, fuel for vehicles and aircraft, oil for everything you
+build — mean the army you can keep is a direct statement about how much ground
+you hold.
 
 **Everything in it is original and generated at runtime.** There are no image
 files, no audio files, no fonts, no libraries. Every tank, soldier and building
@@ -31,7 +37,7 @@ as an installed app.
 npm run bundle       # -> dist/task-force-talon.html
 ```
 
-Produces a single 334 KB HTML file with the entire game inside it — all 28
+Produces a single 362 KB HTML file with the entire game inside it — all 30
 modules, the stylesheet, and the icon as a data URI. It runs from a `file://`
 URL with no server, no network and no module loader; `npm run test:bundle`
 asserts exactly that, including that the page issues zero network requests.
@@ -73,18 +79,23 @@ Designed so that one tap always does the obvious thing.
 
 | Gesture | Action |
 |---|---|
-| Tap | Select your unit, or give the current selection an order |
-| Tap an enemy | Attack it |
-| Tap ground | Move there |
+| Tap your unit | Select it and light every tile it can still reach |
+| Tap a lit tile | Move there, paying the action points it costs |
+| Tap a bracketed enemy | Shoot it |
 | Tap a garrisonable building | Move infantry inside |
 | Drag | Look around, with a momentum flick on release |
 | Pinch | Zoom about your fingers |
-| Long press | Attack-move to that point |
+| Long press | Open the command bar for the selection |
 | Long press, then drag | Box-select a group |
 | Double tap a unit | Select every unit of that type on screen |
 | Minimap | Tap or drag to jump the camera |
+| END TURN | Hand over to the Guard, then take the next turn |
 
-Landscape is the better way to play an RTS, and the game says so on a portrait
+The action-point pips under the selection panel are the whole game in one
+readout: while a unit has pips it can still do something, and `Space` jumps to
+the next unit that does.
+
+Landscape is the better way to play this, and the game says so on a portrait
 phone — but it says it as a dismissible card, not a wall. Some browsers and
 embedded frames never report landscape, and stranding the player behind an
 orientation check is worse than a cramped layout. In portrait the production
@@ -92,24 +103,32 @@ rail becomes a side-scrolling strip along the bottom, the minimap floats
 top-right, and the objectives list starts folded.
 
 Mouse and keyboard work too: left-drag box-selects, right-click orders, the
-wheel zooms, `A` attack-move, `F` force fire, `G` garrison, `C` capture,
-`R` repair, `H` hold, `S` stop, `Tab` shows weapon ranges, `Ctrl+1..9` sets a
-control group.
+wheel zooms, `Enter` ends the turn, `Space` cycles to the next unit with points
+left, `A` attack, `C` capture, `F` build a field work, `G` garrison, `L`/`U`
+load and unload, `R` resupply, `P` paradrop, `H` dig in, `Tab` shows weapon
+ranges, `Ctrl+1..9` sets a control group.
 
 ## What is in the prototype
 
 - **Mission 01, "Highway 8: Bridgehead"** — a 96×72 map of the Euphrates valley
   with a single bridge crossing, six objectives, two optional objectives, three
-  timed counterattacks and a full victory/defeat flow with an end-of-mission
-  rating.
-- **13 units and 19 structures** across two factions plus neutral civilian and
-  capturable buildings.
-- **A ruleset with real depth**: an armour-versus-damage-type counter matrix,
-  four veterancy ranks, terrain cover, building garrison, a power grid with
-  brown-outs, supply logistics, and a Rules of Engagement meter.
-- **An opposing commander** that maintains a combined-arms force mix, garrisons
-  the village, defends its perimeter, rebuilds lost production, and assembles
-  strike groups before committing them.
+  counterattacks on a turn timer, and a full victory/defeat flow with an
+  end-of-mission rating.
+- **22 units and 20 structures** across two factions plus neutral civilian and
+  capturable buildings, sorted into four tabs: infantry (including mortar,
+  airborne and air-assault teams), vehicles, air, and field works.
+- **Fortifications you build**: bunkers, gun outposts, gun towers, and barbed
+  wire that stops foot and wheels and is crushed flat by anything tracked.
+- **A ruleset with real depth**: action points, an armour-versus-damage-type
+  counter matrix across 8 damage types and 6 armour classes, three economies
+  with per-turn upkeep and recoverable starvation, entrenchment, building
+  garrison, four veterancy ranks, and a Rules of Engagement meter.
+- **A commander who ranks up**: 7 ranks from Lieutenant to Major General paying
+  out skill points across a 9-perk tree in three branches, saved between
+  sessions.
+- **An opposing commander** that plays its whole turn in one pass, maintains a
+  combined-arms force mix, garrisons the village, defends its perimeter, and
+  holds a reserve while its scripted counterattacks are still running.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design and the balance tables.
 
@@ -123,9 +142,8 @@ attacking people.
 The **Local Support** meter is the design's answer to the subject matter rather
 than an apology for it. A village sits astride the short route to the bridge.
 Shooting your way through it is faster, and it costs you: Local Support falls,
-supply income drops, your air support takes longer to arrive, and irregulars
-start turning out against you. The fastest path through a built-up area is
-often the one that loses you the mission. That is a better strategy game *and*
+income drops, and irregulars start turning out against you. The fastest path
+through a built-up area is often the one that loses you the mission. That is a better strategy game *and*
 a more honest one.
 
 ## Project layout
@@ -149,7 +167,8 @@ tools/                tests, dev server, screenshot and frame-rate harnesses
 The simulation deliberately contains no DOM access, so all of it runs headless.
 
 ```bash
-npm test             # 24 simulation checks + a full mission playthrough
+npm test             # ruleset + systems + a full mission playthrough
+npm run test:turns   # 47 checks on the turn ruleset alone
 npm run test:browser # 5 viewports, the portrait nudge, and offline play
 npm run test:touch   # real touch gestures: tap, drag, long press, pinch
 npm run test:pwa     # installability: manifest, icons, SW scope, offline
@@ -162,16 +181,26 @@ npm run balance      # regenerates the balance tables in docs/DESIGN.md
 The browser tests need a server running (`npm start`, then point them at it
 with `GAME_URL=http://localhost:8080`) and Playwright's Chromium.
 
-`npm test` covers the economy, production gating, construction radius, pathing
-around obstacles, the counter matrix (four rifle squads lose to one tank; two
-AT teams beat it), garrison resistance to small arms, ROE penalties, veterancy,
-capture, fog, and then plays mission 01 from the opening recon move through to
-victory and defeat. `npm run test:browser` drives the real game in Chromium
-across five viewports from an iPhone SE to a desktop, checks the order bar never
-ends up underneath the production rail, and confirms the game still loads and
-plays with the network switched off. `npm run test:touch` fires real pointer
-events at the canvas to verify every gesture: tap to select, tap to order, drag
-to pan, long press to attack-move, pinch to zoom, and tapping a palette card.
+`npm run test:turns` covers the ruleset itself: action points, the move-or-shoot
+tension, mortar minimum range and set-up, fortifications and wire, air and lift
+and paradrop, the three economies and starvation, entrenchment, engineers,
+logistics, production over turns, defensive fire, and the commander perk tree.
+`npm run test:sim` then turns two sides loose on each other and asserts the
+outcomes the design promises — a march across the map around an obstacle, four
+rifle squads losing to one tank, two AT teams beating it, a garrison shrugging
+off small arms, collateral damage costing Local Support, a civilian building
+never being a legal target, veterancy, capture income, and fog — and
+`npm run test:mission` plays mission 01 from the opening move through to victory
+and defeat.
+
+`npm run test:browser` drives the real game in Chromium across five viewports
+from an iPhone SE to a desktop and confirms it still loads and plays with the
+network switched off. `npm run test:touch` fires real touches at the canvas to
+verify tap-to-select, tap-to-move, tap-to-attack, drag, pinch, the palette and
+END TURN. It picks its targets the way a thumb does: mobile browsers hit-test a
+touch as a small disc and snap it to any clickable element inside it, so a point
+`elementFromPoint` calls clear canvas can still be stolen by a HUD control a
+dozen pixels away.
 
 ## Performance
 
@@ -181,13 +210,16 @@ phone composites the canvas on the GPU.
 
 | Scenario | Frame rate |
 |---|---:|
-| Normal play | 57–60 fps |
-| 90-unit battle | 37 fps |
-| 90-unit battle, zoomed fully in | 30 fps |
+| Normal play | 60 fps |
+| 105-unit battle | 58–60 fps |
+| 105-unit battle, zoomed fully in | 44 fps |
 
-The simulation itself ticks a 120-unit battle in 0.86 ms against a 16.7 ms
-budget. Effect density adapts to the measured frame rate, so a weaker device
-loses smoke rather than responsiveness.
+Turn resolution is the number a turn-based game lives or dies by, because it is
+the pause after END TURN. With ~90 units on the map, every one of them pathing,
+choosing a firing position and shooting, a whole side's turn resolves in **40 ms
+for the player's side and 52 ms for the Guard's** — measured in the same
+software rasteriser. Nobody waits. Effect density adapts to the measured frame
+rate, so a weaker device loses smoke rather than responsiveness.
 
 ## Licence
 

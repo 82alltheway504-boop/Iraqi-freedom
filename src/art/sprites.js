@@ -208,6 +208,111 @@ function aaTurret(g, f, team, rng) {
   dot(g, -3, 0, 2, p.c2);
 }
 
+
+function aaVehicleHull(g, f, team, rng) {
+  const L = 36, Wd = 22;
+  const p = hullPal(f);
+  wheels(g, [[12, -Wd / 2 + 1.5], [12, Wd / 2 - 1.5], [-3, -Wd / 2 + 1.5], [-3, Wd / 2 - 1.5],
+             [-12, -Wd / 2 + 1.5], [-12, Wd / 2 - 1.5]], 4.2, 3.4);
+  outlinePath(g, [[17, -6], [14, -8.5], [-15, -8.5], [-17, -6], [-17, 6], [-15, 8.5], [14, 8.5], [17, 6]], p.c0);
+  plate(g, 6, -7.5, 11, 15, p.c1, '#c6bb88', p.c2, 1.6);
+  g.fillStyle = PAL.glass; g.fillRect(4, -6.8, 2.6, 13.6);
+  teamFlash(g, -5, -9.1, 6, 1.8, team);
+}
+
+/** Missile box launcher: short, boxy, unmistakably not a tank gun. */
+function aaTurretMount(g, f, team, rng) {
+  const p = hullPal(f);
+  plate(g, -7, -8, 12, 7, p.c2, p.c1, '#4a4330', 1.2);
+  plate(g, -7, 1, 12, 7, p.c2, p.c1, '#4a4330', 1.2);
+  g.fillStyle = 'rgba(20,22,16,0.75)';
+  for (let i = 0; i < 3; i++) {
+    g.fillRect(4, -7 + i * 1.9, 2.2, 1.4);
+    g.fillRect(4, 2 + i * 1.9, 2.2, 1.4);
+  }
+  dot(g, -3, 0, 2.6, p.c1);
+  plate(g, -1, -1, 9, 2, '#5b5544', '#767059', '#38352a', 0.8);
+}
+
+/** Gunship, seen from above: fuselage, stub wings, tail boom, rotor disc. */
+function helicopterBody(g, f, team, rng) {
+  const p = hullPal(f);
+  g.fillStyle = 'rgba(35,30,18,0.28)';
+  g.beginPath(); g.ellipse(6, 9, 22, 9, 0, 0, TAU); g.fill();
+
+  // Tail boom running aft, with a vertical fin and tail rotor.
+  plate(g, -34, -2.6, 22, 5.2, p.c2, p.c1, '#4a4330', 2);
+  outlinePath(g, [[-34, -2.6], [-40, -9], [-37, -10], [-31, -3]], p.c1);
+  g.strokeStyle = 'rgba(20,22,16,0.7)'; g.lineWidth = 1.1;
+  g.beginPath(); g.moveTo(-38, -6); g.lineTo(-38, -14); g.stroke();
+  g.globalAlpha = 0.5; dot(g, -38, -10, 5.5, 'rgba(190,190,180,0.5)'); g.globalAlpha = 1;
+
+  // Stub wings carrying rocket pods.
+  for (const sy of [-1, 1]) {
+    plate(g, -6, sy * 9 - 2.6, 15, 5.2, p.c2, p.c1, '#4a4330', 1.4);
+    plate(g, -2, sy * 13 - 2.2, 11, 4.4, '#4e4838', '#666050', '#2f2c22', 1.6);
+    g.fillStyle = 'rgba(20,22,16,0.8)';
+    g.fillRect(8, sy * 13 - 1.6, 1.6, 3.2);
+  }
+
+  // Fuselage and canopy.
+  outlinePath(g, [[22, 0], [16, -5.5], [-2, -7], [-12, -5], [-12, 5], [-2, 7], [16, 5.5]], p.c0);
+  outlinePath(g, [[21, 0], [15, -4], [6, -4.6], [6, 4.6], [15, 4]], PAL.glass);
+  plate(g, -6, -5, 8, 10, p.c1, '#cdbc88', p.c2, 2);
+  // Chin gun.
+  plate(g, 14, -1.2, 10, 2.4, '#42403a', '#59564d', '#27251f', 1);
+  teamFlash(g, -10, -7.4, 7, 2, team);
+
+  // Main rotor disc, drawn translucent so the airframe reads through it.
+  g.save();
+  g.globalAlpha = 0.22;
+  g.strokeStyle = '#d8d6cc'; g.lineWidth = 2.5;
+  g.beginPath(); g.arc(2, 0, 30, 0, TAU); g.stroke();
+  g.globalAlpha = 0.13;
+  dot(g, 2, 0, 30, '#e6e4da');
+  g.restore();
+  g.strokeStyle = 'rgba(70,70,62,0.55)'; g.lineWidth = 2;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * TAU + 0.4;
+    g.beginPath(); g.moveTo(2, 0);
+    g.lineTo(2 + Math.cos(a) * 29, Math.sin(a) * 29); g.stroke();
+  }
+  dot(g, 2, 0, 3.4, '#55503f');
+}
+
+/** Strike jet from above: delta planform, intakes, twin tails. */
+function jetBody(g, f, team, rng) {
+  const p = hullPal(f);
+  g.fillStyle = 'rgba(35,30,18,0.26)';
+  g.beginPath(); g.ellipse(7, 11, 24, 8, 0, 0, TAU); g.fill();
+
+  // Wings first so the fuselage sits proud of them.
+  outlinePath(g, [[6, -3], [-6, -22], [-14, -22], [-12, -3]], '#8e9184');
+  outlinePath(g, [[6, 3], [-6, 22], [-14, 22], [-12, 3]], '#8e9184');
+  // Tailplanes.
+  outlinePath(g, [[-20, -2.5], [-27, -12], [-31, -12], [-28, -2.5]], '#7e8175');
+  outlinePath(g, [[-20, 2.5], [-27, 12], [-31, 12], [-28, 2.5]], '#7e8175');
+
+  // Fuselage.
+  outlinePath(g, [[30, 0], [22, -3.4], [2, -5], [-26, -3.6], [-31, 0],
+                  [-26, 3.6], [2, 5], [22, 3.4]], '#9aa093');
+  // Intakes either side of the spine.
+  plate(g, -4, -7.6, 12, 4, '#5f6459', '#797e72', '#3b3f37', 1.4);
+  plate(g, -4, 3.6, 12, 4, '#5f6459', '#797e72', '#3b3f37', 1.4);
+  // Canopy.
+  outlinePath(g, [[20, 0], [13, -3], [6, -2.6], [6, 2.6], [13, 3]], PAL.glass);
+  // Underwing stores.
+  for (const sy of [-1, 1]) {
+    plate(g, -6, sy * 13 - 1.6, 9, 3.2, '#4e4838', '#666050', '#2f2c22', 1.4);
+  }
+  // Exhaust.
+  plate(g, -33, -3, 4, 6, '#3a3833', '#55524a', '#221f1b', 1.4);
+  g.globalCompositeOperation = 'lighter';
+  dot(g, -35, 0, 4.5, 'rgba(255,150,60,0.4)');
+  g.globalCompositeOperation = 'source-over';
+  teamFlash(g, -14, -5.2, 8, 2, team);
+}
+
 // --- infantry ---------------------------------------------------------------
 // Soldiers are drawn from directly above: helmet, shoulders, pack, weapon.
 function soldier(g, f, team, kind, frame, rng) {
@@ -230,8 +335,17 @@ function soldier(g, f, team, kind, frame, rng) {
     g.restore();
   }
 
+  // A mortar team carries the tube and baseplate instead of a rifle.
+  if (kind === 'mortar') {
+    g.save();
+    g.translate(1.5, 2.4);
+    g.rotate(-0.5);
+    plate(g, 0, -1.1, 10, 2.2, '#4a4838', '#615e4a', '#2b2a20', 1.1, null);
+    plate(g, -2.4, -2.2, 3.2, 4.4, '#3c3a30', '#524f42', '#232119', 0.8, null);
+    g.restore();
+  }
   // Weapon, held to the right side of the body, pointing forward.
-  if (kind !== 'engineer') {
+  if (kind !== 'engineer' && kind !== 'mortar') {
     g.save();
     g.translate(0, 1.8);
     const len = kind === 'at' ? 11 : 8.5;
@@ -254,9 +368,12 @@ function soldier(g, f, team, kind, frame, rng) {
   g.fillRect(-3.4, -0.9, 6.4, 1.3);                                  // chest rig
   teamFlash(g, -1.2, -3.9, 3.4, 1.3, team);
 
-  // Helmet.
-  dot(g, 0.6, 0, 3.2, rg ? '#6e6540' : '#7d7449');
-  dot(g, 1.2, -0.5, 2.4, rg ? '#877c50' : '#968c5c');
+  // Helmet. Airborne and air assault wear a distinctly darker lid so the
+  // three infantry types are told apart at a glance on a phone.
+  const lid = kind === 'para' ? '#4f5a3e' : kind === 'light' ? '#8a8256' : (rg ? '#6e6540' : '#7d7449');
+  const lidTop = kind === 'para' ? '#657356' : kind === 'light' ? '#a09765' : (rg ? '#877c50' : '#968c5c');
+  dot(g, 0.6, 0, 3.2, lid);
+  dot(g, 1.2, -0.5, 2.4, lidTop);
   g.strokeStyle = 'rgba(12,14,10,0.7)'; g.lineWidth = 0.8;
   g.beginPath(); g.arc(0.6, 0, 3.2, 0, TAU); g.stroke();
 }
@@ -483,6 +600,157 @@ const STRUCT = {
     g.beginPath(); g.moveTo(-w / 2 + 4, 0); g.lineTo(w / 2 - 4, 0); g.stroke();
   },
 
+
+  /** Dug-in strongpoint: an earth berm ring with firing steps and overhead cover. */
+  fort(g, w, h, f, team, rng) {
+    pad(g, w, h, rng, 1);
+    // Earth parapet.
+    g.save();
+    g.beginPath(); g.arc(0, 0, Math.min(w, h) * 0.46, 0, TAU);
+    g.lineWidth = 9; g.strokeStyle = PAL.berm0; g.stroke();
+    g.lineWidth = 5; g.strokeStyle = PAL.berm1; g.stroke();
+    g.restore();
+    sandbagRing(g, Math.min(w, h) * 0.40, Math.min(w, h) * 0.40, rng, 14);
+    // Overhead cover over the centre, with a dark entrance.
+    plate(g, -w * 0.19, -h * 0.19, w * 0.38, h * 0.38, '#6d6550', '#867d63', '#463f2f', 2);
+    g.strokeStyle = 'rgba(20,22,16,0.5)'; g.lineWidth = 0.9;
+    for (let x = -w * 0.17; x < w * 0.17; x += 3.4) {
+      g.beginPath(); g.moveTo(x, -h * 0.17); g.lineTo(x, h * 0.17); g.stroke();
+    }
+    g.fillStyle = 'rgba(12,14,10,0.85)';
+    g.fillRect(-3, h * 0.13, 6, 5);
+    teamFlash(g, -w / 2 + 5, h / 2 - 6, w - 10, 3, team);
+  },
+
+  /** Watch tower: concentric decks, long shadow, gun on the top platform. */
+  tower(g, w, h, f, team, rng) {
+    pad(g, w, h, rng, 1);
+    g.fillStyle = 'rgba(30,26,16,0.38)';
+    rr(g, -w * 0.30 + 5, -h * 0.30 + 7, w * 0.6, h * 0.6, 3); g.fill();
+    // Legs splayed to the corners read as height from directly above.
+    g.strokeStyle = '#5d5747'; g.lineWidth = 3;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      g.beginPath();
+      g.moveTo(sx * (w * 0.40), sy * (h * 0.40));
+      g.lineTo(sx * (w * 0.16), sy * (h * 0.16));
+      g.stroke();
+    }
+    plate(g, -w * 0.34, -h * 0.34, w * 0.68, h * 0.68, '#7a7361', '#938b76', '#4f4a3c', 3);
+    plate(g, -w * 0.24, -h * 0.24, w * 0.48, h * 0.48, '#8b8370', '#a49b84', '#5c5647', 2.5);
+    // Railing dashes around the upper deck.
+    g.strokeStyle = 'rgba(30,32,24,0.55)'; g.lineWidth = 1.2;
+    g.setLineDash([3, 3]);
+    g.strokeRect(-w * 0.24, -h * 0.24, w * 0.48, h * 0.48);
+    g.setLineDash([]);
+    dot(g, 0, 0, Math.min(w, h) * 0.12, '#575141');
+    teamFlash(g, -w / 2 + 5, h / 2 - 6, w - 10, 3, team);
+  },
+
+  /** Barbed wire: angle-iron pickets strung with concertina. */
+  wire(g, w, h, f, team, rng) {
+    g.strokeStyle = 'rgba(40,34,22,0.35)'; g.lineWidth = 1;
+    for (const sx of [-1, 1]) {
+      const x = sx * (w * 0.34);
+      plate(g, x - 1.2, -h * 0.42, 2.4, h * 0.84, '#5a5445', '#726b58', '#37332a', 0.8);
+    }
+    // Two coils of concertina between the pickets.
+    for (const off of [-h * 0.16, h * 0.16]) {
+      g.strokeStyle = '#9c9382';
+      g.lineWidth = 1.3;
+      g.beginPath();
+      for (let i = 0; i <= 22; i++) {
+        const t = i / 22;
+        const x = -w * 0.40 + t * w * 0.80;
+        const y = off + Math.sin(t * Math.PI * 5) * h * 0.12;
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.stroke();
+      // Barbs.
+      g.lineWidth = 0.9;
+      g.strokeStyle = 'rgba(180,172,155,0.8)';
+      for (let i = 1; i < 10; i++) {
+        const x = -w * 0.36 + (i / 10) * w * 0.72;
+        g.beginPath(); g.moveTo(x - 2, off - 2); g.lineTo(x + 2, off + 2);
+        g.moveTo(x + 2, off - 2); g.lineTo(x - 2, off + 2); g.stroke();
+      }
+    }
+  },
+
+  /** Airfield: a strip with threshold markings, an apron and two hangars. */
+  airfield(g, w, h, f, team, rng) {
+    pad(g, w, h, rng);
+    plate(g, -w / 2 + 2, -h / 2 + 2, w - 4, h - 4, PAL.road1, '#8a857a', PAL.road2, 3);
+    // Runway down the long axis.
+    g.fillStyle = '#5e594f';
+    g.fillRect(-w / 2 + 5, -h * 0.16, w - 10, h * 0.32);
+    g.strokeStyle = 'rgba(236,232,214,0.75)';
+    g.lineWidth = 1.6; g.setLineDash([7, 7]);
+    g.beginPath(); g.moveTo(-w / 2 + 8, 0); g.lineTo(w / 2 - 8, 0); g.stroke();
+    g.setLineDash([]);
+    // Threshold bars at both ends.
+    g.fillStyle = 'rgba(236,232,214,0.7)';
+    for (let i = 0; i < 4; i++) {
+      g.fillRect(-w / 2 + 7, -h * 0.13 + i * (h * 0.075), 5, 2.2);
+      g.fillRect(w / 2 - 12, -h * 0.13 + i * (h * 0.075), 5, 2.2);
+    }
+    // Hangars along the top edge.
+    for (let i = 0; i < 2; i++) {
+      const hx = -w * 0.28 + i * w * 0.36;
+      plate(g, hx, -h / 2 + 5, w * 0.22, h * 0.22, PAL.metal0, PAL.metal1, PAL.metal2, 2);
+      g.strokeStyle = 'rgba(20,22,18,0.25)'; g.lineWidth = 1;
+      for (let x = hx + 2; x < hx + w * 0.22; x += 4) {
+        g.beginPath(); g.moveTo(x, -h / 2 + 6); g.lineTo(x, -h / 2 + 4 + h * 0.22); g.stroke();
+      }
+    }
+    antenna(g, w / 2 - 10, -h / 2 + 8, 14, rng);
+    teamFlash(g, -w / 2 + 6, h / 2 - 8, w * 0.3, 3.5, team);
+  },
+
+  /** Water plant: settling tanks and pipework. Reads blue at any zoom. */
+  water(g, w, h, f, team, rng) {
+    pad(g, w, h, rng);
+    plate(g, -w / 2 + 2, -h / 2 + 2, w - 4, h - 4, PAL.concrete2, PAL.concrete0, '#6f6a5b', 2.5);
+    for (const [cx2, cy2, r] of [[-w * 0.22, -h * 0.18, Math.min(w, h) * 0.20],
+                                 [w * 0.22, -h * 0.18, Math.min(w, h) * 0.20],
+                                 [0, h * 0.24, Math.min(w, h) * 0.24]]) {
+      dot(g, cx2, cy2, r + 2, '#8e897a');
+      dot(g, cx2, cy2, r, '#3f7f86');
+      dot(g, cx2 - r * 0.22, cy2 - r * 0.22, r * 0.62, '#5ea6ad');
+      g.strokeStyle = 'rgba(20,45,48,0.4)'; g.lineWidth = 1;
+      g.beginPath(); g.arc(cx2, cy2, r * 0.55, 0, TAU); g.stroke();
+    }
+    g.strokeStyle = '#8b867b'; g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(-w * 0.22, -h * 0.18); g.lineTo(w * 0.22, -h * 0.18);
+    g.moveTo(0, -h * 0.18); g.lineTo(0, h * 0.24);
+    g.stroke();
+    teamFlash(g, -w / 2 + 5, h / 2 - 7, w * 0.35, 3.5, team);
+  },
+
+  /** Oil derrick: lattice tower plus a pumpjack. */
+  oil(g, w, h, f, team, rng) {
+    pad(g, w, h, rng, 1);
+    // Lattice tower, drawn as crossed braces inside a square.
+    const t = Math.min(w, h) * 0.34;
+    g.strokeStyle = '#6b6453'; g.lineWidth = 2.4;
+    g.strokeRect(-t, -t, t * 2, t * 2);
+    g.lineWidth = 1.4;
+    g.beginPath();
+    g.moveTo(-t, -t); g.lineTo(t, t); g.moveTo(t, -t); g.lineTo(-t, t);
+    g.moveTo(-t * 0.5, -t); g.lineTo(-t * 0.5, t); g.moveTo(t * 0.5, -t); g.lineTo(t * 0.5, t);
+    g.stroke();
+    dot(g, 0, 0, t * 0.32, '#3a352b');
+    dot(g, 0, 0, t * 0.18, '#17140f');
+    // Pumpjack beam off to one side.
+    g.save();
+    g.translate(w * 0.30, h * 0.24);
+    plate(g, -9, -1.4, 18, 2.8, '#7d6a3d', '#9a8450', '#54462a', 1.2);
+    plate(g, -2, -4, 4, 8, '#5f5847', '#7a7360', '#3a352a', 1);
+    dot(g, 8, 0, 2.6, '#4a4436');
+    g.restore();
+    teamFlash(g, -w / 2 + 5, h / 2 - 6, w - 10, 3, team);
+  },
+
   civil(g, w, h, f, team, rng) {
     // Flat-roofed mudbrick housing with a parapet and roof clutter.
     plate(g, -w / 2, -h / 2, w, h, PAL.mudbrick2, PAL.mudbrick0, '#7f6743', 2);
@@ -569,14 +837,13 @@ const STRUCT_STYLE = {
   command_post: 'hq', rg_command: 'hq',
   barracks: 'barracks', rg_barracks: 'barracks',
   motor_pool: 'motorpool', rg_motor_pool: 'motorpool',
-  supply_depot: 'depot',
-  generator: 'generator', rg_generator: 'generator',
-  comm_center: 'comms',
-  mg_nest: 'mgnest', bunker: 'bunker',
-  at_gun: 'atgun', rg_at_gun: 'atgun',
-  barrier: 'barrier',
+  airfield: 'airfield', rg_airfield: 'airfield',
+  fortification: 'fort',
+  gun_outpost: 'mgnest', bunker: 'bunker',
+  gun_tower: 'tower', rg_tower: 'tower',
+  barbed_wire: 'wire', rg_wire: 'wire',
   civil_block: 'civil', civil_hall: 'hall',
-  fuel_depot: 'fuel', abandoned_depot: 'ruinedDepot',
+  fuel_depot: 'fuel', water_plant: 'water', oil_derrick: 'oil',
 };
 
 // Defensive emplacements get a rotating weapon mount.
@@ -626,10 +893,26 @@ export function buildUnitArt() {
         rec.turret = sprite(40, 20, (g) => aaTurret(g, d.faction, team, rng));
         rec.turretOffset = -1;
         break;
+      case 'aa_vehicle':
+        rec.hull = sprite(44, 28, (g) => aaVehicleHull(g, d.faction, team, rng));
+        rec.turret = sprite(34, 22, (g) => aaTurretMount(g, d.faction, team, rng));
+        rec.turretOffset = -2;
+        break;
+      case 'helicopter': case 'rg_helo':
+        rec.hull = sprite(96, 66, (g) => helicopterBody(g, d.faction, team, rng));
+        rec.air = true;
+        break;
+      case 'jet':
+        rec.hull = sprite(80, 52, (g) => jetBody(g, d.faction, team, rng));
+        rec.air = true;
+        break;
       default: {
         // Infantry: two walk frames.
         const kind = id === 'at_team' || id === 'rpg_team' ? 'at'
-          : id === 'engineer' ? 'engineer' : 'rifle';
+          : id === 'engineer' ? 'engineer'
+          : (id === 'mortar_team' || id === 'rg_mortar') ? 'mortar'
+          : (id === 'airborne' || id === 'air_assault') ? 'para'
+          : id === 'light_infantry' ? 'light' : 'rifle';
         rec.infantry = true;
         rec.frames = [0, 1].map((fr) => sprite(22, 18, (g) => soldier(g, d.faction, team, kind, fr, rng)));
         rec.hull = rec.frames[0];
@@ -697,6 +980,7 @@ export function buildIcons() {
   icons.ifv = mk((g) => { bg(g); vehicleGlyph(g, 'ifv'); });
   icons.mbt = mk((g) => { bg(g); vehicleGlyph(g, 'mbt'); });
   icons.supply_truck = mk((g) => { bg(g); vehicleGlyph(g, 'truck'); });
+  icons.engineer = icons.engineer;
 
   const structGlyph = (style, w = 34, h = 28) => mk((g) => {
     bg(g, '#44503a', '#242c1c');
@@ -704,15 +988,27 @@ export function buildIcons() {
     STRUCT[style](g, w, h, FACTION.CTF, PAL.team[0], makeRng(9));
     g.restore();
   });
+  icons.light_infantry = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'light', 0, makeRng(5)); g.restore(); });
+  icons.mortar_team = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'mortar', 0, makeRng(6)); g.restore(); });
+  icons.airborne = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'para', 0, makeRng(7)); g.restore(); });
+  icons.air_assault = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(1.75, 1.75); soldier(g, FACTION.CTF, PAL.team[0], 'para', 1, makeRng(8)); g.restore(); });
+  icons.aa_vehicle = mk((g) => { bg(g); g.save(); g.rotate(-Math.PI / 2); g.scale(0.8, 0.8);
+    aaVehicleHull(g, FACTION.CTF, PAL.team[0], makeRng(4)); aaTurretMount(g, FACTION.CTF, PAL.team[0], makeRng(4)); g.restore(); });
+  icons.helicopter = mk((g) => { bg(g, '#2b3a44', '#161f26'); g.save(); g.rotate(-Math.PI / 2); g.scale(0.48, 0.48);
+    helicopterBody(g, FACTION.CTF, PAL.team[0], makeRng(4)); g.restore(); });
+  icons.jet = mk((g) => { bg(g, '#2b3a44', '#161f26'); g.save(); g.rotate(-Math.PI / 2); g.scale(0.56, 0.56);
+    jetBody(g, FACTION.CTF, PAL.team[0], makeRng(4)); g.restore(); });
+  icons.fortification = structGlyph('fort', 30, 30);
+  icons.gun_outpost = structGlyph('mgnest', 26, 26);
+  icons.gun_tower = structGlyph('tower', 30, 30);
+  icons.barbed_wire = structGlyph('wire', 32, 18);
+  icons.airfield = structGlyph('airfield', 40, 30);
   icons.command_post = structGlyph('hq', 36, 32);
-  icons.generator = structGlyph('generator', 30, 26);
-  icons.supply_depot = structGlyph('depot', 34, 30);
+
   icons.barracks = structGlyph('barracks', 34, 30);
   icons.motor_pool = structGlyph('motorpool', 38, 28);
-  icons.comm_center = structGlyph('comms', 34, 30);
-  icons.mg_nest = structGlyph('mgnest', 26, 26);
-  icons.at_gun = structGlyph('atgun', 28, 28);
-  icons.barrier = structGlyph('barrier', 30, 14);
+
+
 
   // Command / ability glyphs.
   const stroke = (g, c = PAL.hudText, w = 3) => { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; };

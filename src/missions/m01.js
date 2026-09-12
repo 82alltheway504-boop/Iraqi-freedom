@@ -120,7 +120,7 @@ class Mission01 {
       + 'burn fuel, and every structure you raise consumes oil. Take the sites before you take '
       + 'the ground, or you will be feeding an army you cannot move.',
       'There is a village short of the bridge and people are still living in it. Local Support '
-      + 'is not a scoreboard — it decides whether the locals point out the Guard\'s caches or '
+      + 'is not a scoreboard — it decides whether the locals point out the Guard\'s positions or '
       + 'point out you.',
     ];
     this.openingCall =

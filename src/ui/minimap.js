@@ -1,6 +1,7 @@
 import { makeCanvas } from '../art/draw.js';
 import { factionTeamColor } from '../art/palette.js';
 import { TILE } from '../world/terrain.js';
+import { RESOURCE_INFO } from '../sim/rules.js';
 import { clamp } from '../core/math.js';
 
 // Terrain colours at minimap scale — chosen so the river, the road and the
@@ -84,12 +85,13 @@ export class Minimap {
       }
     }
 
-    // Supply caches.
-    for (const c of w.caches) {
-      if (c.amount <= 0) continue;
-      if (!w.fog.isExplored((c.x / TILE) | 0, (c.y / TILE) | 0)) continue;
-      g.fillStyle = '#d8c274';
-      g.fillRect(((c.x / TILE) | 0) * s - s, ((c.y / TILE) | 0) * s - s, s * 3, s * 3);
+    // Resource sites are marked in their own resource colour, captured or not,
+    // because knowing where the economy is matters more than owning it yet.
+    for (const b of w.buildings) {
+      if (!b.alive || !b.def.yields) continue;
+      if (!w.fog.isExplored(b.tx, b.ty)) continue;
+      g.fillStyle = RESOURCE_INFO[b.def.yields].color;
+      g.fillRect(b.tx * s - s, b.ty * s - s, (b.tw + 2) * s, (b.th + 2) * s);
     }
 
     // Structures, then units on top.

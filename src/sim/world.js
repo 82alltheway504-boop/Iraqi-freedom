@@ -18,7 +18,7 @@ export const ROE = {
   LOSS_PER_DESTROYED: 12,
   REGEN_PER_TURN: 1.5,
   tiers: [
-    { min: 80, name: 'Cooperative', incomeMult: 1.10, blurb: 'Locals share cache locations. +10% income.' },
+    { min: 80, name: 'Cooperative', incomeMult: 1.10, blurb: 'Locals point out Guard positions. +10% income.' },
     { min: 50, name: 'Wary',        incomeMult: 1.00, blurb: 'No effect.' },
     { min: 25, name: 'Hostile',     incomeMult: 0.92, blurb: 'Irregulars reinforce the enemy. -8% income.' },
     { min: 0,  name: 'Insurgent',   incomeMult: 0.85, blurb: 'Heavy irregular reinforcement. -15% income.' },

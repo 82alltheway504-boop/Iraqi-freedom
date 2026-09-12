@@ -10,20 +10,56 @@ generated straight from the source (`npm run balance`), so they cannot drift.
 Command & Conquer's loop is harvest → build → tech → assault, and it is close to
 perfect. The failure mode of everything built on it is **mass beats mix**:
 whoever can afford the most of the single best unit wins, and the map is
-scenery. Three systems here exist specifically to prevent that.
+scenery. On a phone it has a second failure mode — real-time micromanagement
+through a thumb is miserable.
+
+So this is **turn-based**, and four systems exist specifically to stop mass from
+beating mix.
 
 | System | What it punishes | What it rewards |
 |---|---|---|
+| Action points | Moving and shooting with everything, every turn | Choosing what each unit is for this turn |
 | Armour vs damage type | Massing one unit | Combined arms |
-| Cover and garrison | Fighting in the open | Reading the ground |
-| Veterancy | Trading units evenly | Withdrawing damaged squads |
+| Three separate economies | Building whatever you can afford | Taking and holding ground |
+| Cover, entrenchment, garrison | Fighting in the open | Reading the ground |
 
-A fourth — **Local Support** — exists because of the setting, and is discussed
+A fifth — **Local Support** — exists because of the setting, and is discussed
 in §7.
 
 ---
 
-## 2. The counter matrix
+## 2. The turn
+
+One turn is one decision per unit, not one action per unit. Every unit has a
+pool of **action points** that pays for both movement and fire:
+
+- A tile of movement costs its terrain cost — 1 on road, 1.6 in sand, 2.4 in a
+  palm grove.
+- A shot costs that weapon's `attackAp` — 2 for a machine gun, 3 for a tank's
+  main gun, 6 for a jet's ordnance.
+
+A rifle squad has 5 points. It can walk five tiles of road, or walk one tile and
+fire twice, or stand still and fire twice while digging in. That is the whole
+tension: **the turn is the resource**, and every unit spends it on exactly one
+plan.
+
+The turn start resolves in a fixed order, and the order is load-bearing:
+
+```
+income → upkeep → starvation → action points → production → construction → entrench → rearm
+```
+
+Income lands *before* upkeep is charged, so a water plant captured last turn
+pays for the infantry it was captured to feed. Entrenchment is applied after
+action points are restored, so a unit that sat still is already dug in when its
+turn opens.
+
+Anything that neither moved nor fired counts as holding position, which is what
+feeds entrenchment — there is no "fortify" button to remember.
+
+---
+
+## 3. The counter matrix
 
 Every point of damage in the game goes through one function
 (`computeDamage` in `src/sim/rules.js`). Nothing bypasses it.
@@ -31,55 +67,94 @@ Every point of damage in the game goes through one function
 ```
 damage = base
        × DAMAGE_TABLE[damageType][armourClass]
-       × attacker veterancy
-       × defender veterancy
-       × (garrison multiplier | 1 − terrain cover × armour's cover scaling)
+       × attacker veterancy × defender veterancy
+       × commander perks
+       × (garrison multiplier | 1 − (terrain cover + entrenchment) × armour's cover scaling)
+       × starvation penalty
 ```
 
 The table is the design. A rifle squad does **4%** of its damage to a main
 battle tank — not "reduced", effectively nothing. A tank's sabot round does
 **22%** to infantry. Neither unit can solve the other, and that is the point.
 
-Two consequences worth stating plainly:
+Three consequences worth stating plainly:
 
 **Tanks carry a coaxial machine gun.** Once sabot was made near-useless against
-infantry, four rifle squads versus one tank of equal cost became a two-minute
-stalemate, which felt terrible. Real tanks have a coax, so the tanks got one,
-and units now pick whichever mount actually hurts what they are shooting at
-(`Unit.pickWeapon`, scored by damage-per-second against the target's armour).
-A tank now shreds infantry in the open while still losing to AT teams in cover.
+infantry, four rifle squads versus one tank of equal cost became a stalemate,
+which felt terrible. Real tanks have a coax, so the tanks got one, and units
+pick whichever mount actually hurts what they are shooting at
+(`Unit.pickWeapon`, scored by damage per action point against the target's
+armour).
 
-**Projectiles have travel time and lead their target.** A tank shell is a real
-object moving at 520 px/s that aims where the target *will be*. A technical at
-112 px/s can genuinely dodge one. Bullets are hitscan with a visual tracer,
-because sixty simulated bullets per second is a waste of a phone's battery.
+**The AT team's missile is worth a whole turn.** It has 4 points and the launcher
+costs 3, so an AT team fires once per turn and does nothing else. The warhead is
+sized for that: two teams working together kill a main battle tank in about six
+turns and expect to lose one of their own doing it. A weaker warhead made armour
+unanswerable by infantry, which is the exact failure this table exists to
+prevent.
+
+**Mortars break works, not tanks.** Mortar fire is the only indirect weapon:
+it arcs over walls, needs no line of sight, has a 3-tile *minimum* range, and
+cannot move and fire in the same turn. Against a fortification it is ×1.25;
+against heavy armour ×0.25. It is the answer to a dug-in position and useless
+against the tank parked behind it.
 
 ### Verified in tests
 
-`tools/simtest.mjs` asserts the intended outcomes rather than the numbers, so a
-rebalance that breaks the design fails the build:
+`tools/simtest.mjs` plays the fights out turn by turn and asserts the intended
+outcome rather than the numbers, so a rebalance that breaks the design fails
+the build:
 
-- 4 rifle squads (1,000 supply) versus 1 tank (1,000 supply) → **the tank wins
-  untouched**. Infantry in the open is food for armour.
-- 2 AT teams (800 supply) versus 1 tank (1,000 supply) → **the AT teams win**
-  with one survivor. The counter is real and it is cost-efficient.
-- 1 rifle squad firing at a garrisoned militia for 30 seconds → occupant at
-  **77% health**. Bullets do not clear buildings.
+- 4 rifle squads versus 1 tank → **the tank wins**, barely scratched.
+- 2 AT teams versus 1 tank of comparable cost → **the AT teams win**.
+- A rifle squad firing at a garrisoned militia for five turns → occupant
+  **untouched**. Bullets do not clear buildings.
 
 ---
 
-## 3. Cover and garrison
+## 4. Three economies
 
-Terrain grants a flat damage reduction to whatever is standing on it, scaled by
-armour class: infantry gets the full value, vehicles 40%, structures none. A
-rubble field is 30% cover — an AT team sitting in the ruins of a building is
-effectively a third tougher, and rubble is created by destroying buildings, so
-a firefight physically produces new defensive terrain as it goes.
+One resource pool lets you buy your way out of any mistake. Three pools, each
+tied to a category, mean your army has a shape you have to maintain.
+
+| Resource | Buys and feeds | Comes from |
+|---|---|---|
+| **Water** | Infantry and mortar teams | Water plants |
+| **Fuel** | Vehicles and aircraft | Fuel depots |
+| **Oil** | Every structure and fortification | Oil derricks |
+
+Everything costs its resource twice: once to build, then again **every turn** as
+upkeep. Sites are on the map and capturable, so the army you can keep is a
+direct statement about how much ground you hold.
+
+Running dry does **not** delete anything. A side that cannot pay is *starving*:
+
+- action points are halved,
+- damage drops to ×0.75,
+- every unpaid unit loses 6% of its health per turn.
+
+It is a slow, visible, recoverable disaster — go and take a water plant and the
+army comes back. Deleting units for an accounting failure is the version of this
+rule that makes people stop playing.
+
+---
+
+## 5. Ground: cover, entrenchment, garrison
+
+Terrain grants a flat damage reduction to whatever stands on it, scaled by
+armour class: infantry gets the full value, vehicles 40%, structures none.
+Rubble is 30% cover and is *created* by destroying buildings, so a firefight
+physically produces new defensive terrain as it goes.
+
+**Entrenchment** rewards patience. A unit that spends a whole turn neither
+moving nor firing digs in half a level, to a maximum of two, each level worth
+18% damage reduction. Moving or firing gives all of it back immediately. A line
+that holds for two turns is 36% tougher than the same line that shuffled.
 
 **Garrison** is the sharper version of the same idea. Infantry can occupy any
-civilian building. Occupants fire out at +20% range and cannot be reached
-directly: damage only bleeds in through the structure, at 20% of the hit,
-re-weighted by how suitable the weapon is.
+civilian building. Occupants cannot be reached directly: damage only bleeds in
+through the structure, at 20% of the hit, re-weighted by how suitable the weapon
+is.
 
 | Weapon against a garrison | Effect |
 |---|---|
@@ -87,72 +162,42 @@ re-weighted by how suitable the weapon is.
 | Armour-piercing | ×0.25 — punches through, hits one man |
 | Rocket | ×2.20 — the correct answer |
 | High explosive | ×2.60 — the correct answer |
+| Mortar | ×2.80 — the correct answer, from out of sight |
 | Air ordnance | ×3.00 — the very correct answer |
 
 So a garrisoned RPG team trades evenly with a main battle tank, and the only
-ways to shift it are explosives, air support, or levelling the building — which
+ways to shift it are explosives, mortars, air, or levelling the building — which
 in a village costs Local Support. Every option has a price.
 
 When a garrisoned building is destroyed, occupants are ejected at 35% health
 rather than killed. Killing them outright is the genre standard and it is a
-rage-quit moment; ejecting them is punishing without being a disaster.
+rage-quit moment.
+
+**Field works** are the player's own version. An engineer can lay them, and
+they behave as their name suggests: a *fortification* is a garrisonable bunker,
+a *gun outpost* and *gun tower* shoot back on the enemy's turn, and *barbed
+wire* sits on its own grid layer — impassable to foot and wheels, and crushed
+flat by anything tracked. Wire does not stop a tank; it decides where the tank
+has to go.
 
 ---
 
-## 4. Veterancy
+## 6. Air
 
-Units earn one XP point per 100 supply of value destroyed.
+Aircraft are a third category, not fast tanks.
 
-| Rank | XP | Damage | Damage taken | Vision | Regen |
-|---|---:|---:|---:|---:|---:|
-| Regular | 0 | ×1.00 | ×1.00 | ×1.00 | — |
-| Veteran | 2 | ×1.15 | ×0.90 | ×1.05 | 1.5/s |
-| Hardened | 6 | ×1.30 | ×0.80 | ×1.10 | 3.0/s |
-| Elite | 14 | ×1.50 | ×0.70 | ×1.20 | 5.0/s |
+- They ignore terrain entirely and stack over ground units.
+- They carry the largest action-point pools on the map (a jet has 20) and spend
+  them crossing it.
+- A jet has a **sortie count**. When its ordnance is gone it must return to an
+  airfield to rearm — air power is a scheduled event, not a permanent presence.
+- Anti-air does ×1.00 to aircraft and ×0.05 to heavy armour. An AA vehicle
+  parked over a position is a no-fly sign and nothing else.
+- A gunship can **lift** one air-assault squad and put it down anywhere;
+  airborne infantry can **drop** onto any visible tile.
 
-An elite tank is worth roughly two regulars, which changes how you fight: a
-damaged veteran pulled out of contact heals itself and comes back better, so
-there is a real, continuous incentive to micromanage rather than to trade.
-
----
-
-## 5. Economy and power
-
-Supply trucks run between caches and a depot. A depot ships with one truck free
-and each cache is finite, so map control is economic control rather than an
-abstraction. A captured **fuel depot** adds a flat 9 supply/second with no
-logistics — worth an engineer and an escort.
-
-Power is deliberately *not* a hard switch. A brown-out (`powerUse > powerGen`)
-slows production to 45% and halves the rate of fire of defensive structures.
-A generator raid cripples a base without switching it off, which leaves the
-defender something to play for. Generators also detonate for 55 HE damage when
-destroyed, so lining them up next to the ammunition is your own problem.
-
----
-
-## 6. Pathing, and why it never stalls
-
-A* over the tile grid, per locomotion class (foot, wheel, track), with a binary
-heap and a stamp-based closed set so no arrays are cleared between searches.
-
-Two decisions matter more than the algorithm:
-
-**The search is budgeted.** 6,000 node expansions, then it returns the best node
-found. A unit ordered somewhere unreachable walks as far as it can — which is
-what a player expects — instead of freezing or spiking the frame.
-
-**Paths are string-pulled.** Raw A* output is a staircase; every waypoint that
-can be walked straight past is dropped, so units move in straight lines and
-formations do not crab sideways.
-
-Repaths are rate-limited to 0.9 s per unit. An early version cleared the path
-every tick during attack-move, which meant one A* search per unit per frame;
-engagement is now latched so contact triggers exactly one repath.
-
-Units do not block each other — they push apart with soft separation, which
-avoids the deadlocks that hard unit collision produces in a crowd. Tracked
-crushers roll over enemy infantry.
+The counter to air is not "bring your own air", it is "bring AA and make the
+sortie expensive".
 
 ---
 
@@ -162,54 +207,86 @@ The mechanic the setting demanded.
 
 Mission 01's short route to the bridge runs through an inhabited village.
 Damaging civilian structures costs **Local Support**: 2.2 points per 100 damage,
-12 points for levelling one outright. Support recovers at 1.5 points per minute
-once you stop.
+12 points for levelling one outright. Support recovers 1.5 points a turn once
+you stop.
 
-| Support | Tier | Supply | Enemy irregulars | Air support cooldown |
-|---|---|---:|---:|---:|
-| ≥ 80% | Cooperative | ×1.10 | — | ×1.00 |
-| ≥ 50% | Wary | ×1.00 | — | ×1.00 |
-| ≥ 25% | Hostile | ×0.92 | ×1.0 | ×1.25 |
-| < 25% | Insurgent | ×0.85 | ×2.0 | ×1.60 |
-
-Below 50%, irregulars spawn from the village and attack your base on a timer.
-Below 25% they come twice as often and your air support arrives 60% later.
+| Support | Tier | Income |
+|---|---|---:|
+| ≥ 80% | Cooperative | ×1.10 |
+| ≥ 50% | Wary | ×1.00 |
+| ≥ 25% | Hostile | ×0.92 |
+| < 25% | Insurgent | ×0.85 |
 
 Two design rules keep it honest:
 
-1. **Nothing auto-targets a civilian structure.** Collateral damage is either
-   splash, or a deliberate force-fire order through the command bar. The
-   interface warns you at the moment you give it.
+1. **A civilian building is never a legal target.** It cannot be selected as
+   one, by you or by the Guard. Every point of collateral damage in the game is
+   splash from something you chose to fire near it. This is asserted by a test.
 2. **It is never only a penalty.** High support pays an income bonus, so the
    restrained route is a *strategy*, not a tax.
 
 ---
 
-## 8. Mission 01 — "Highway 8: Bridgehead"
+## 8. Progression
+
+Two separate ladders, because they reward different things.
+
+**Units earn veterancy** by killing things — one XP per 100 supply of value
+destroyed. Four ranks, up to ×1.50 damage and ×0.70 damage taken, and the top
+two ranks grant a permanent extra action point. A damaged veteran pulled out of
+contact is worth more than a fresh replacement, so there is a continuous
+incentive to withdraw rather than trade.
+
+**You earn rank** for the things a commander decides: 3 XP a turn survived, 8×
+the value of each kill, 40 for a capture, 90 for an objective. Rank from
+Lieutenant to Major General pays out **skill points**, spent in a small,
+opinionated tree with prerequisites:
+
+| Branch | Perks |
+|---|---|
+| **Support** | Logistics Corps (+15% income/rank) → Field Engineering (works cost −20%/rank, and instant at rank 2); Strict Rationing (−12% upkeep/rank) |
+| **Firepower** | Marksmanship (+10% infantry damage/rank); Gunnery Training (+10% vehicle damage/rank) → Close Air Support (+15% air damage and an extra sortie per rank) |
+| **Manoeuvre** | Forced March (+1 infantry AP/rank) → Hardened Troops (−6% damage taken/rank); Motor Pool Discipline (+1 vehicle AP/rank) |
+
+Every perk changes a number the player can already see on the HUD, so the
+effect of a choice is legible rather than a hidden modifier. Progress persists
+to `localStorage` between sessions, and can be respecced.
+
+---
+
+## 9. Mission 01 — "Highway 8: Bridgehead"
 
 A 96×72 map of the Euphrates valley. The river runs north to south with a
 single road bridge; Highway 8 crosses the map diagonally. The bridge being the
 only crossing is asserted by a test that seals it and confirms no route exists
 for any locomotion class.
 
-The mission is the classic campaign-opener arc, tuned so each beat teaches one
-system and then immediately asks you to use it under pressure.
+The mission is the classic campaign-opener arc, with each beat teaching one
+system and then immediately asking you to use it under pressure.
 
 | Beat | Teaches | Pressure |
 |---|---|---|
-| 1. Recon | Movement, scouting, fog | None — this is the tutorial breath |
-| 2. Suppress | The counter matrix | Two dug-in posts with escorts |
-| 3. Seize | Capture, economy | Your engineer is unarmed |
-| 4. Deploy | Base building | The enemy commander wakes up |
-| 5. Hold | Defensive positioning | Three timed counterattacks |
+| 1. Supply | The three economies | Your infantry drink 19 water a turn and you hold 400 |
+| 2. Recon | Movement, action points, fog | None — this is the tutorial breath |
+| 3. Suppress | The counter matrix | Two dug-in posts with escorts |
+| 4. Deploy | Base building, upkeep | The Guard commander wakes up |
+| 5. Hold | Entrenchment and field works | Counterattacks on turns +4, +10, +17 |
 | 6. Assault | Everything at once | AT guns covering the bridge |
 
-The second beat is the one the whole mission turns on. Rifle squads do 10% of
-their damage to a structure; AT teams do 85% and outrange the bunker. Players
-who bring the right tool clear it in 25 seconds. Players who do not, cannot —
-and the radio call tells them so before they try.
+The **first** beat is new to the turn-based version and it exists because the
+first build of this mission was quietly unwinnable in a way that only showed up
+in a full playthrough: the objectives told you to clear two fortifications
+first, and eight infantry drinking 19 water a turn against a 200-water stock
+starved before they could reach the water plant. The supply objective is now
+active from turn one, the stock is 400, and the opening radio call states the
+arithmetic out loud.
 
-**Objectives are evaluated independently every tick**, not run as a strict state
+The third beat is the one the fighting turns on. Rifle squads do 10% of their
+damage to a structure; mortars do 125% to a fortification and can fire from
+behind cover. Players who bring the right tool clear it in two turns. Players
+who do not, cannot — and the radio call tells them so before they try.
+
+**Objectives are evaluated independently every turn**, not run as a strict state
 machine. A player who captures the depot before clearing the observation posts
 gets credit the moment they do it. The briefing suggests an order; it does not
 enforce one.
@@ -221,29 +298,22 @@ and then wait for the meter to recover.
 
 ### The opposing commander
 
-The Guard does not cheat with vision; it reacts to what its own units and
-structures can actually see. What it has instead is discipline:
+The Guard plays its whole turn in one call, and does not cheat with vision — it
+reacts to what its own units and structures can see. Each unit picks the single
+best action available to it, heaviest units first, in a deliberate order:
 
-- Maintains a target force mix by weight and builds whatever it is shortest of.
-- Garrisons the village buildings overlooking the approaches, one squad at a
-  time.
-- Throws a reserve at anything hostile inside its perimeter.
-- Rebuilds destroyed production when it can afford to.
-- **Assembles a strike group at a staging point and only commits it once it is
-  worth committing**, with the threshold rising after each wave.
+- Shoot anything it can already kill this turn.
+- Capture anything undefended within reach.
+- Otherwise close on the objective, preferring a tile that puts the target
+  inside its own weapon range and outside the target's.
 
-While the three scripted counterattacks are running it holds a large reserve
-(threshold 13), so pressure arrives in waves rather than as one continuous
-grind. Once they are broken it drops to 6 and commits everything.
-
-An earlier tuning pass gave it 24 supply/second against the player's ~15. It
-won every time, including against a competent defence. It now runs at 16, which
-still out-produces the player — it should, it is defending — without making the
-mission unwinnable.
+It maintains a target force mix by weight and builds whatever it is shortest of,
+garrisons the village buildings overlooking the approaches, and holds a reserve
+while the scripted counterattacks are still running so that pressure arrives in
+waves rather than as one continuous grind.
 
 ---
-
-## 9. Assets
+## 10. Assets
 
 No files. All of it is generated at load.
 
@@ -280,13 +350,18 @@ the fighting escalates.
 
 ---
 
-## 10. Built for a phone
+## 11. Built for a phone
 
 - **DOM HUD, not canvas.** Crisp text at any pixel ratio, real hit targets,
   safe-area insets around the notch, and no font rasterisation in the hot loop.
-- **One tap does the obvious thing.** No mode switching for ordinary play.
-- **Fixed 30 Hz simulation**, rendered as fast as the device allows, capped at
-  four catch-up steps so a backgrounded tab cannot spiral.
+- **One tap does the obvious thing.** Tap a unit to select it and light every
+  tile it can still reach; tap a lit tile to go there; tap a bracketed enemy to
+  shoot it. No mode switching for ordinary play.
+- **Turns forgive a thumb.** Nothing is lost to a mis-tap under time pressure,
+  which is the failure mode of real-time strategy on a touchscreen.
+- **The simulation does no work between turns.** Resolution is instant on the
+  tap; the frame loop only animates what already happened, so a slow device
+  plays identically to a fast one.
 - **Device pixel ratio capped at 2.** A 3× backing buffer on a phone is 2532×1170
   and the cost is entirely fill rate.
 - **Adaptive effect quality.** If the measured frame rate drops below 42 for two
@@ -318,72 +393,95 @@ expensive thing a Canvas2D game can do. It was a 4.5× frame-rate difference.
 
 ## Appendix — balance tables
 
-Generated from source with `npm run balance`.
+
+## Categories
+
+| Category | Upkeep paid in | Notes |
+|---|---|---|
+| Infantry | Water | Dismounted troops and mortar teams. Drink water. |
+| Vehicles | Fuel | Wheeled and tracked. Burn fuel. |
+| Air | Fuel | Jets and helicopters. Burn fuel hard. |
+| Works | Oil | Buildings and fortifications. Consume oil. |
 
 ## Damage type vs armour class
 
-| Damage type | Infantry | Light Armour | Heavy Armour | Structure | Air |
-|---|---:|---:|---:|---:|---:|
-| Small Arms | 1.00 | 0.30 | 0.04 | 0.10 | 0.15 |
-| Autocannon | 0.85 | 0.90 | 0.25 | 0.35 | 0.60 |
-| Armour-Piercing | 0.22 | 1.00 | 1.00 | 0.55 | 0.00 |
-| Rocket | 0.55 | 1.05 | 0.95 | 0.85 | 0.10 |
-| High Explosive | 1.00 | 0.75 | 0.40 | 1.00 | 0.00 |
-| Anti-Air | 0.30 | 0.25 | 0.05 | 0.10 | 1.00 |
-| Ordnance | 1.00 | 1.00 | 0.80 | 0.90 | 0.00 |
+| Damage type | Infantry | Light Armour | Heavy Armour | Structure | Air | Fortification |
+|---|---:|---:|---:|---:|---:|---:|
+| Small Arms | 1.00 | 0.30 | 0.04 | 0.10 | 0.15 | 0.08 |
+| Autocannon | 0.85 | 0.90 | 0.25 | 0.35 | 0.60 | 0.30 |
+| Armour-Piercing | 0.22 | 1.00 | 1.00 | 0.55 | 0.00 | 0.45 |
+| Rocket | 0.55 | 1.05 | 0.95 | 0.85 | 0.10 | 0.80 |
+| High Explosive | 1.00 | 0.75 | 0.40 | 1.00 | 0.00 | 0.70 |
+| Anti-Air | 0.30 | 0.25 | 0.05 | 0.10 | 1.00 | 0.10 |
+| Ordnance | 1.00 | 1.00 | 0.80 | 0.90 | 0.00 | 1.10 |
+| Mortar | 1.10 | 0.55 | 0.25 | 0.85 | 0.00 | 1.25 |
 
 ## Units
 
+Damage per turn assumes the unit stands still and spends every point firing.
+
 ### Coalition Task Force
 
-| Unit | Cost | Build | HP | Armour | Move | Speed | Vision | Weapon | Damage | RoF | Range | DPS |
-|---|---:|---:|---:|---|---|---:|---:|---|---:|---:|---:|---:|
-| Rifle Squad | 250 | 6s | 160 | Infantry | foot | 42 | 7 | Small Arms | 11×3 | 0.85s | 150 | 39 |
-| AT Team | 400 | 9s | 130 | Infantry | foot | 38 | 8 | Rocket | 72 | 3.2s | 230 | 23 |
-| Combat Engineer | 350 | 8s | 110 | Infantry | foot | 40 | 6 | — | — | — | — | — |
-| Scout Humvee | 450 | 8s | 260 | Light Armour | wheel | 96 | 11 | Small Arms | 10 | 0.32s | 170 | 31 |
-| M2 Dragoon IFV | 800 | 14s | 520 | Light Armour | track | 72 | 9 | Autocannon | 22×2 | 0.7s | 210 | 63 |
-| M1 Anvil MBT | 1200 | 20s | 1000 | Heavy Armour | track | 58 | 9 | Armour-Piercing | 115 | 3s | 235 | 38 |
-| ↳ | | | | | | | | Small Arms | 9×2 | 0.22s | 175 | 82 |
-| Supply Truck | 500 | 11s | 300 | Light Armour | wheel | 80 | 7 | — | — | — | — | — |
+| Unit | Category | Cost | Upkeep | Build | HP | Armour | Move | AP | Vision | Weapon | Damage | Range | Shot cost | Per turn |
+|---|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|---:|---:|---:|
+| Light Infantry | Infantry | 40 WTR | 2 | 1t | 110 | Infantry | foot | 6 | 8 | Small Arms | 10×2 | 4 | 2 | 60 |
+| Rifle Squad | Infantry | 60 WTR | 3 | 1t | 165 | Infantry | foot | 5 | 7 | Small Arms | 13×3 | 5 | 2 | 78 |
+| AT Team | Infantry | 80 WTR | 4 | 1t | 130 | Infantry | foot | 4 | 8 | Rocket | 105 | 2–7 | 3 | 105 |
+| Mortar Team | Infantry | 85 WTR | 4 | 1t | 120 | Infantry | foot | 4 | 6 | Mortar | 62 | 3–9 | 3 | 62 |
+| Airborne Infantry | Infantry | 90 WTR | 4 | 2t | 150 | Infantry | foot | 5 | 8 | Small Arms | 15×3 | 5 | 2 | 90 |
+| Air Assault Infantry | Infantry | 95 WTR | 4 | 2t | 155 | Infantry | foot | 6 | 7 | Small Arms | 17×3 | 5 | 2 | 153 |
+| Combat Engineer | Infantry | 70 WTR | 3 | 1t | 115 | Infantry | foot | 5 | 6 | — | — | — | — | — |
+| Scout Humvee | Vehicles | 70 FUE | 4 | 1t | 260 | Light Armour | wheel | 10 | 11 | Small Arms | 12×2 | 5 | 2 | 120 |
+| M2 Dragoon IFV | Vehicles | 130 FUE | 7 | 2t | 520 | Light Armour | track | 8 | 9 | Autocannon | 26×2 | 6 | 2 | 208 |
+| M1 Anvil MBT | Vehicles | 200 FUE | 10 | 3t | 1000 | Heavy Armour | track | 6 | 9 | Armour-Piercing | 125 | 7 | 3 | 250 |
+| ↳ | | | | | | | | | | coaxial | 10×2 | 5 | 2 | 60 |
+| Avenger AA | Vehicles | 120 FUE | 6 | 2t | 320 | Light Armour | wheel | 7 | 9 | Anti-Air | 46 | 7 | 2 | 138 |
+| Logistics Truck | Vehicles | 90 FUE | 4 | 1t | 300 | Light Armour | wheel | 9 | 7 | — | — | — | — | — |
+| Gunship Helicopter | Air | 220 FUE | 14 | 3t | 340 | Air | air | 12 | 12 | Rocket | 58 | 6 | 3 | 232 |
+| Strike Jet | Air | 300 FUE | 20 | 3t | 240 | Air | air | 20 | 13 | Ordnance | 115 | 5 | 6 | 345 |
 
 ### Republican Guard
 
-| Unit | Cost | Build | HP | Armour | Move | Speed | Vision | Weapon | Damage | RoF | Range | DPS |
-|---|---:|---:|---:|---|---|---:|---:|---|---:|---:|---:|---:|
-| Militia Squad | 150 | 4s | 120 | Infantry | foot | 40 | 6 | Small Arms | 9×3 | 0.95s | 145 | 28 |
-| RPG Team | 300 | 7s | 120 | Infantry | foot | 38 | 7 | Rocket | 58 | 3.4s | 195 | 17 |
-| Technical | 350 | 6s | 200 | Light Armour | wheel | 112 | 9 | Small Arms | 9 | 0.28s | 160 | 32 |
-| Saqr IFV | 700 | 13s | 420 | Light Armour | track | 70 | 8 | Autocannon | 18×2 | 0.8s | 195 | 45 |
-| Asad MBT | 1000 | 18s | 820 | Heavy Armour | track | 54 | 8 | Armour-Piercing | 95 | 3.4s | 215 | 28 |
-| ↳ | | | | | | | | Small Arms | 8×2 | 0.26s | 165 | 62 |
-| Flak Track | 650 | 12s | 340 | Light Armour | wheel | 62 | 9 | Anti-Air | 13 | 0.16s | 205 | 81 |
+| Unit | Category | Cost | Upkeep | Build | HP | Armour | Move | AP | Vision | Weapon | Damage | Range | Shot cost | Per turn |
+|---|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|---:|---:|---:|
+| Militia Squad | Infantry | 35 WTR | 2 | 1t | 120 | Infantry | foot | 5 | 6 | Small Arms | 10×3 | 4 | 2 | 60 |
+| RPG Team | Infantry | 65 WTR | 3 | 1t | 120 | Infantry | foot | 4 | 7 | Rocket | 62 | 1–6 | 3 | 62 |
+| Guard Mortar | Infantry | 80 WTR | 4 | 1t | 115 | Infantry | foot | 4 | 6 | Mortar | 55 | 3–8 | 3 | 55 |
+| Technical | Vehicles | 60 FUE | 3 | 1t | 200 | Light Armour | wheel | 11 | 9 | Small Arms | 11×2 | 5 | 2 | 110 |
+| Saqr IFV | Vehicles | 115 FUE | 6 | 2t | 420 | Light Armour | track | 8 | 8 | Autocannon | 21×2 | 6 | 2 | 168 |
+| Asad MBT | Vehicles | 175 FUE | 9 | 3t | 830 | Heavy Armour | track | 6 | 8 | Armour-Piercing | 105 | 6 | 3 | 210 |
+| ↳ | | | | | | | | | | coaxial | 9×2 | 5 | 2 | 54 |
+| Flak Track | Vehicles | 110 FUE | 6 | 2t | 340 | Light Armour | wheel | 7 | 9 | Anti-Air | 42 | 7 | 2 | 126 |
+| Guard Gunship | Air | 200 FUE | 13 | 3t | 310 | Air | air | 11 | 11 | Rocket | 52 | 6 | 3 | 156 |
 
 ## Structures
 
-| Structure | Faction | Cost | Build | HP | Size | Power | Notes |
-|---|---|---:|---:|---:|---|---:|---|
-| Command Post | CTF | 2000 | 30s | 3000 | 4×4 | 30 | build radius 15 |
-| Field Generator | CTF | 400 | 9s | 700 | 2×2 | 28 | detonates 55 |
-| Supply Depot | CTF | 900 | 16s | 1400 | 3×3 | -6 | trains 1, supply drop-off |
-| Barracks | CTF | 600 | 14s | 1200 | 3×3 | -10 | trains 3 |
-| Motor Pool | CTF | 1400 | 24s | 1800 | 4×3 | -25 | trains 3, needs barracks |
-| Comms Centre | CTF | 1200 | 22s | 1000 | 3×3 | -30 | needs motor_pool, unlocks air_strike, recon_sweep |
-| MG Position | CTF | 350 | 8s | 700 | 2×2 | -5 | defensive |
-| AT Emplacement | CTF | 600 | 12s | 850 | 2×2 | -12 | needs motor_pool, defensive |
-| Barrier | CTF | 70 | 2s | 500 | 1×1 | 0 | — |
-| Guard Command Post | RG | 2000 | 30s | 2600 | 4×4 | 30 | build radius 14 |
-| Guard Barracks | RG | 500 | 12s | 1100 | 3×3 | -8 | trains 2 |
-| Guard Motor Pool | RG | 1300 | 22s | 1700 | 4×3 | -22 | trains 4 |
-| Guard Generator | RG | 400 | 9s | 650 | 2×2 | 28 | detonates 55 |
-| Guard Bunker | RG | 400 | 9s | 950 | 2×2 | -5 | defensive |
-| Guard AT Gun | RG | 550 | 12s | 750 | 2×2 | -10 | defensive |
-| Residential Block | CIV | — | —s | 900 | 2×2 | 0 | civilian |
-| Municipal Hall | CIV | — | —s | 1300 | 3×3 | 0 | civilian |
-| Fuel Depot | CIV | — | —s | 800 | 3×2 | 0 | capturable, detonates 90, +9/s |
-| Abandoned Depot | CIV | — | —s | 1200 | 3×3 | 0 | capturable |
+| Structure | Faction | Cost | Upkeep | Build | HP | Size | Notes |
+|---|---|---:|---:|---:|---:|---|---|
+| Command Post | CTF | 400 OIL | 0 | 2t | 3000 | 4×4 | build radius 16 |
+| Barracks | CTF | 120 OIL | 4 | 1t | 1200 | 3×3 | trains 5 |
+| Motor Pool | CTF | 200 OIL | 7 | 2t | 1800 | 4×3 | trains 5, needs barracks |
+| Airfield | CTF | 280 OIL | 10 | 2t | 1500 | 5×4 | trains 4, needs motor_pool |
+| Fortification | CTF | 60 OIL | 1 | 1t | 900 | 2×2 | garrison 2 |
+| Gun Outpost | CTF | 90 OIL | 3 | 1t | 750 | 2×2 | shoots back |
+| Gun Tower | CTF | 150 OIL | 5 | 1t | 900 | 2×2 | needs barracks, shoots back |
+| Barbed Wire | CTF | 25 OIL | 0 | 1t | 260 | 1×1 | obstacle |
+| Guard Command Post | RG | 400 OIL | 0 | 2t | 2600 | 4×4 | build radius 14 |
+| Guard Barracks | RG | 110 OIL | 4 | 1t | 1100 | 3×3 | trains 3 |
+| Guard Motor Pool | RG | 190 OIL | 7 | 2t | 1700 | 4×3 | trains 4 |
+| Guard Airstrip | RG | 260 OIL | 10 | 2t | 1400 | 5×4 | trains 1 |
+| Guard Bunker | RG | 90 OIL | 3 | 1t | 900 | 2×2 | shoots back |
+| Guard Gun Tower | RG | 150 OIL | 5 | 1t | 850 | 2×2 | shoots back |
+| Guard Wire | RG | 25 OIL | 0 | 1t | 260 | 1×1 | obstacle |
+| Fuel Depot | CIV | — | 0 | 1t | 800 | 3×2 | capturable, +22 FUE/turn |
+| Water Plant | CIV | — | 0 | 1t | 950 | 3×3 | capturable, +24 WTR/turn |
+| Oil Derrick | CIV | — | 0 | 1t | 850 | 2×2 | capturable, +20 OIL/turn |
+| Residential Block | CIV | — | 0 | 1t | 900 | 2×2 | garrison 2, civilian |
+| Municipal Hall | CIV | — | 0 | 1t | 1300 | 3×3 | garrison 3, civilian |
 
 ## Terrain
+
+Movement costs are action points per tile. Air ignores the table entirely.
 
 | Terrain | Foot | Wheel | Track | Cover | Blocks sight |
 |---|---|---|---|---:|---|
@@ -396,14 +494,56 @@ Generated from source with `npm run balance`.
 | water | — | — | — | 0% | no |
 | canal | 2.20 | — | — | 15% | no |
 
+## Supply
+
+| Resource | Pays for | Running out |
+|---|---|---|
+| Fuel | undefined | see below |
+| Water | undefined | see below |
+| Oil | undefined | see below |
+
+A side that cannot pay its upkeep is starving: action points are halved (×0.5), damage drops to ×0.75, and every unpaid unit loses 6% of its health each turn. Nothing is deleted — take a supply site back and the army recovers.
+
+## Digging in
+
+A unit that neither moves nor fires entrenches 0.5 levels per turn to a maximum of 2, worth 18% damage reduction per level. Moving or firing gives all of it back.
+
 ## Veterancy
 
-| Rank | XP | Damage | Damage taken | Vision | Regen |
+| Rank | XP | Damage | Damage taken | Vision | Bonus AP |
 |---|---:|---:|---:|---:|---:|
-| Regular | 0 | ×1.00 | ×1.00 | ×1.00 | 0/s |
-| Veteran | 2 | ×1.15 | ×0.90 | ×1.05 | 1.5/s |
-| Hardened | 6 | ×1.30 | ×0.80 | ×1.10 | 3/s |
-| Elite | 14 | ×1.50 | ×0.70 | ×1.20 | 5/s |
+| Regular | 0 | ×1.00 | ×1.00 | ×1.00 | 0 |
+| Veteran | 2 | ×1.15 | ×0.90 | ×1.05 | 0 |
+| Hardened | 6 | ×1.30 | ×0.80 | ×1.10 | 1 |
+| Elite | 14 | ×1.50 | ×0.70 | ×1.20 | 1 |
+
+## Commander ranks
+
+Experience comes in at 3/turn plus 8× the value of each kill, 40 a capture and 90 an objective.
+
+| Rank | XP | Skill points |
+|---|---:|---:|
+| Lieutenant | 0 | 1 |
+| Captain | 120 | 1 |
+| Major | 320 | 1 |
+| Lieutenant Colonel | 640 | 2 |
+| Colonel | 1100 | 2 |
+| Brigadier General | 1750 | 2 |
+| Major General | 2600 | 3 |
+
+## Perks
+
+| Perk | Branch | Ranks | Needs | Effect |
+|---|---|---:|---|---|
+| Logistics Corps | Support | 3 | — | Every resource site yields +15% per rank. |
+| Strict Rationing | Support | 2 | — | Upkeep costs fall 12% per rank. |
+| Field Engineering | Support | 2 | Logistics Corps 1 | Fortifications and structures cost 20% less oil per rank, and build in one turn. |
+| Marksmanship | Firepower | 3 | — | Infantry damage +10% per rank. |
+| Gunnery Training | Firepower | 3 | — | Vehicle damage +10% per rank. |
+| Close Air Support | Firepower | 2 | Gunnery Training 1 | Aircraft damage +15% per rank and one extra sortie. |
+| Forced March | Manoeuvre | 2 | — | All infantry gain +1 action point per rank. |
+| Motor Pool Discipline | Manoeuvre | 2 | — | All vehicles gain +1 action point per rank. |
+| Hardened Troops | Manoeuvre | 3 | Forced March 1 | All units take 6% less damage per rank. |
 
 ## Garrison
 
@@ -418,6 +558,7 @@ Damage bleeding into occupants: 20% of the hit on the structure, then:
 | High Explosive | ×2.60 |
 | Anti-Air | ×0.35 |
 | Ordnance | ×3.00 |
+| Mortar | ×2.80 |
 
 ## Cover effectiveness by armour class
 
@@ -428,19 +569,22 @@ Damage bleeding into occupants: 20% of the hit on the structure, then:
 | Heavy Armour | 35% |
 | Structure | 0% |
 | Air | 0% |
+| Fortification | 0% |
 
 ## Local Support tiers
 
-| Support | Tier | Supply | Enemy irregulars | Support power cooldown |
-|---|---|---:|---:|---:|
-| ≥ 80% | Cooperative | ×1.10 | ×0.0 | ×1.00 |
-| ≥ 50% | Wary | ×1.00 | ×0.0 | ×1.00 |
-| ≥ 25% | Hostile | ×0.92 | ×1.0 | ×1.25 |
-| ≥ 0% | Insurgent | ×0.85 | ×2.0 | ×1.60 |
+Starts at 100%, falls 2.2 per 100 points of damage dealt to civilian property and 12 for levelling a civilian building, and recovers 1.5 a turn when you leave them alone.
 
-## Support powers
+| Support | Tier | Income | Effect |
+|---|---|---:|---|
+| ≥ 80% | Cooperative | ×1.10 | Locals point out Guard positions. +10% income. |
+| ≥ 50% | Wary | ×1.00 | No effect. |
+| ≥ 25% | Hostile | ×0.92 | Irregulars reinforce the enemy. -8% income. |
+| ≥ 0% | Insurgent | ×0.85 | Heavy irregular reinforcement. -15% income. |
 
-| Power | Cooldown | Effect |
-|---|---:|---|
-| Strafing Run | 110s | A single gun pass along a line you draw. Devastating on soft targets in the open. Flak tracks will engage it. |
-| Recon Sweep | 65s | Reveals an area for 22 seconds, garrisons included. |
+## Roster by tab
+
+- **Infantry** — Light Infantry, Rifle Squad, AT Team, Mortar Team, Combat Engineer, Airborne Infantry, Air Assault Infantry
+- **Vehicles** — Scout Humvee, Logistics Truck, M2 Dragoon IFV, Avenger AA, M1 Anvil MBT
+- **Air** — Gunship Helicopter, Strike Jet
+- **Works** — Command Post, Barracks, Motor Pool, Airfield, Fortification, Gun Outpost, Gun Tower, Barbed Wire

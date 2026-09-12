@@ -20,8 +20,9 @@ export class Renderer {
     this.puffs = new RadialCache();
     this.showRanges = false;
     this.placement = null;          // { defId, tx, ty, ok }
-    this.targetingLine = null;      // { x0,y0,x1,y1 } for the strafing run
     this.markers = [];              // transient move / attack pings
+    this.moveOverlay = null;        // Map<tileIndex, {ap,max}> — where the selection may go
+    this.targetOverlay = null;      // Set<entityId> — what it may shoot
   }
 
   resize(cssW, cssH, dpr) {
@@ -63,7 +64,7 @@ export class Renderer {
     // --- ground ---------------------------------------------------------
     this.terrain.drawView(g, view.x0, view.y0, view.x1, view.y1);
     this._drawDecals(g, visible);
-    this._drawSupplyCaches(g, visible, time);
+    if (this.moveOverlay) this._drawMoveOverlay(g, view);
 
     // --- structures -----------------------------------------------------
     for (const b of w.buildings) {
@@ -87,12 +88,11 @@ export class Renderer {
     for (const u of units) this._drawUnit(g, u, sel, time);
 
     // --- projectiles, effects -------------------------------------------
+    if (this.targetOverlay) this._drawTargets(g, time);
     this._drawProjectiles(g, visible);
-    this._drawStrikes(g, visible);
     this._drawFx(g, visible);
     this._drawMarkers(g);
     if (this.placement) this._drawPlacement(g, cam);
-    if (this.targetingLine) this._drawTargetingLine(g);
 
     // --- fog on top ------------------------------------------------------
     this._drawFog(g, view);
@@ -119,40 +119,57 @@ export class Renderer {
     g.restore();
   }
 
-  _drawSupplyCaches(g, visible, time) {
-    for (const c of this.world.caches) {
-      if (c.amount <= 0 || !visible(c.x, c.y, 60)) continue;
-      if (!this._seen(c.x, c.y)) continue;
-      const frac = clamp(c.amount / c.initial, 0, 1);
-      const n = 3 + Math.round(frac * 6);
-      g.save();
-      g.translate(c.x, c.y);
-      g.fillStyle = 'rgba(45,38,24,0.35)';
-      g.beginPath(); g.ellipse(3, 4, 26, 18, 0, 0, TAU); g.fill();
-      // Stacked supply crates and fuel drums under camouflage netting.
-      for (let i = 0; i < n; i++) {
-        const a = (i / 9) * TAU;
-        const rx = Math.cos(a) * 14, ry = Math.sin(a) * 9;
-        g.save();
-        g.translate(rx, ry);
-        g.rotate(a * 0.4);
-        rr(g, -6, -5, 12, 10, 1.5);
-        g.fillStyle = i % 2 ? '#8a7549' : '#9d8757';
-        g.fill();
-        g.strokeStyle = 'rgba(30,26,16,0.6)'; g.lineWidth = 0.9; g.stroke();
-        g.fillStyle = 'rgba(255,246,220,0.16)';
-        g.fillRect(-6, -5, 12, 3);
-        g.restore();
-      }
-      g.strokeStyle = 'rgba(96,104,62,0.5)'; g.lineWidth = 1.2;
-      g.beginPath(); g.arc(0, 0, 20, 0, TAU); g.stroke();
-      if (this.world.time - c.workedAt < 0.4) {
-        g.strokeStyle = `rgba(226,194,106,${0.5 + 0.4 * Math.sin(time * 14)})`;
-        g.lineWidth = 2;
-        g.beginPath(); g.arc(0, 0, 24, 0, TAU); g.stroke();
-      }
-      g.restore();
+  /**
+   * Tiles the selection can reach this turn. The single most important
+   * affordance in a turn-based game: the player must see the consequence of a
+   * move before committing, not after.
+   */
+  _drawMoveOverlay(g, view) {
+    const W = this.world.grid.w;
+    const inView = (x, y) => x > view.x0 - TILE && x < view.x1 && y > view.y0 - TILE && y < view.y1;
+    g.save();
+    for (const [idx, node] of this.moveOverlay) {
+      const x = (idx % W) * TILE, y = ((idx / W) | 0) * TILE;
+      if (!inView(x, y)) continue;
+      // Cheaper tiles read brighter, so the cost gradient is visible at a glance.
+      const frac = node.max ? node.ap / node.max : 0;
+      g.fillStyle = `rgba(127,212,255,${(0.30 - frac * 0.16).toFixed(3)})`;
+      g.fillRect(x, y, TILE, TILE);
     }
+    g.strokeStyle = 'rgba(150,220,255,0.55)';
+    g.lineWidth = 1.6;
+    g.beginPath();
+    for (const [idx] of this.moveOverlay) {
+      const x = (idx % W) * TILE, y = ((idx / W) | 0) * TILE;
+      if (!inView(x, y)) continue;
+      if (!this.moveOverlay.has(idx - W)) { g.moveTo(x, y); g.lineTo(x + TILE, y); }
+      if (!this.moveOverlay.has(idx + W)) { g.moveTo(x, y + TILE); g.lineTo(x + TILE, y + TILE); }
+      if (!this.moveOverlay.has(idx - 1)) { g.moveTo(x, y); g.lineTo(x, y + TILE); }
+      if (!this.moveOverlay.has(idx + 1)) { g.moveTo(x + TILE, y); g.lineTo(x + TILE, y + TILE); }
+    }
+    g.stroke();
+    g.restore();
+  }
+
+  /** Brackets around everything the selection could shoot right now. */
+  _drawTargets(g, time) {
+    const pulse = 0.55 + 0.35 * Math.sin(time * 5);
+    g.save();
+    g.strokeStyle = `rgba(224,112,79,${pulse.toFixed(3)})`;
+    g.lineWidth = 2.2;
+    for (const id of this.targetOverlay) {
+      const e = this.world.entityById(id);
+      if (!e) continue;
+      const x = e.cx ?? e.x, y = e.cy ?? e.y;
+      const r = e.kind === 'building' ? Math.max(e.halfW, e.halfH) + 6 : e.radius + 9;
+      for (let i = 0; i < 4; i++) {
+        const a0 = i * (TAU / 4) + 0.35;
+        g.beginPath();
+        g.arc(x, y, r, a0, a0 + 0.55);
+        g.stroke();
+      }
+    }
+    g.restore();
   }
 
   _drawBuilding(g, b, sel, time) {
@@ -299,6 +316,18 @@ export class Renderer {
       g.restore();
     }
 
+    if (u.isAir) {
+      // Aircraft cast a ground shadow, which is how altitude reads from above.
+      g.save();
+      g.translate(11, 15);
+      g.rotate(u.angle);
+      g.globalAlpha = 0.22;
+      const sp = art.hull;
+      g.drawImage(sp.canvas, -sp.ox, -sp.oy, sp.w, sp.h);
+      g.restore();
+      g.globalAlpha = 1;
+    }
+
     g.rotate(u.angle);
     if (art.infantry) {
       // Alternate the two walk frames from distance travelled. Drawn slightly
@@ -376,6 +405,29 @@ export class Renderer {
       rr(g, -10, -u.radius - 11, 20 * f, 3.4, 1.6); g.fill();
     }
 
+    // Action points as pips — the resource the player spends every turn.
+    if (u.owner === this.world.humanIndex && u.apMax > 0) {
+      const n = Math.min(u.apMax, 12);
+      const pipW = 2.6, gap = 1.2;
+      const totalW = n * pipW + (n - 1) * gap;
+      const py = u.radius + 7;
+      for (let i = 0; i < n; i++) {
+        g.fillStyle = i < u.ap ? '#7fd4ff' : 'rgba(18,24,18,0.8)';
+        g.fillRect(-totalW / 2 + i * (pipW + gap), py, pipW, 3);
+      }
+    }
+    // Dug in: chevrons under the unit, one per level.
+    if (u.entrench > 0) {
+      g.strokeStyle = `rgba(168,211,106,${(0.45 + 0.25 * u.entrench).toFixed(2)})`;
+      g.lineWidth = 1.6;
+      for (let i = 0; i < Math.ceil(u.entrench); i++) {
+        g.beginPath();
+        g.moveTo(-6, u.radius + 13 + i * 3);
+        g.lineTo(0, u.radius + 10 + i * 3);
+        g.lineTo(6, u.radius + 13 + i * 3);
+        g.stroke();
+      }
+    }
     const showHp = selected || u.hpFrac < 0.995 || this.world.time - u.lastHitAt < 4;
     if (showHp) this._hpBar(g, 0, -u.radius - 6, Math.max(22, u.radius * 2.1), u.hpFrac, u.owner);
     else if (u.owner !== this.world.humanIndex) {
@@ -426,10 +478,10 @@ export class Renderer {
         }
         continue;
       }
+      // A unit part-way through its move: show the rest of the walk it paid for.
       const path = e.path;
       if (path && path.length) {
-        g.strokeStyle = e.order.type === 'attackMove'
-          ? 'rgba(224,112,79,0.55)' : 'rgba(215,224,194,0.42)';
+        g.strokeStyle = 'rgba(215,224,194,0.42)';
         g.setLineDash([6, 6]);
         g.beginPath();
         g.moveTo(e.x, e.y);
@@ -437,8 +489,7 @@ export class Renderer {
         g.stroke();
         g.setLineDash([]);
         const last = path[path.length - 1];
-        this._flag(g, last.x, last.y,
-          e.order.type === 'attackMove' ? PAL.bad : PAL.hudText);
+        this._flag(g, last.x, last.y, PAL.hudText);
       }
       if (e.target) {
         const t = w.entityById(e.target);
@@ -497,35 +548,6 @@ export class Renderer {
       }
       g.restore();
     }
-  }
-
-  _drawStrikes(g, visible) {
-    for (const s of this.world.strikes) {
-      if (!visible(s.x, s.y, 120)) continue;
-      g.save();
-      g.translate(s.x, s.y);
-      g.rotate(s.angle);
-      // A simple attack aircraft silhouette, seen from directly below.
-      g.fillStyle = 'rgba(30,34,30,0.35)';
-      g.save(); g.translate(6, 10); g.scale(1, 1);
-      this._planeShape(g); g.fill(); g.restore();
-      g.fillStyle = '#5c6659';
-      this._planeShape(g); g.fill();
-      g.strokeStyle = '#20261f'; g.lineWidth = 1; g.stroke();
-      g.fillStyle = '#8d968a';
-      g.fillRect(-4, -2.5, 12, 5);
-      g.restore();
-    }
-  }
-
-  _planeShape(g) {
-    g.beginPath();
-    g.moveTo(20, 0); g.lineTo(8, -4); g.lineTo(2, -4);
-    g.lineTo(-2, -20); g.lineTo(-8, -20); g.lineTo(-6, -4);
-    g.lineTo(-16, -3); g.lineTo(-20, -11); g.lineTo(-23, -10); g.lineTo(-21, -2);
-    g.lineTo(-21, 2); g.lineTo(-23, 10); g.lineTo(-20, 11); g.lineTo(-16, 3);
-    g.lineTo(-6, 4); g.lineTo(-8, 20); g.lineTo(-2, 20); g.lineTo(2, 4); g.lineTo(8, 4);
-    g.closePath();
   }
 
   _drawFx(g, visible) {
@@ -633,21 +655,6 @@ export class Renderer {
     for (let i = 1; i < d.def.size[1]; i++) {
       g.beginPath(); g.moveTo(x, y + i * TILE); g.lineTo(x + w, y + i * TILE); g.stroke();
     }
-    g.restore();
-  }
-
-  _drawTargetingLine(g) {
-    const t = this.targetingLine;
-    g.save();
-    g.strokeStyle = 'rgba(224,112,79,0.85)';
-    g.lineWidth = 3;
-    g.setLineDash([12, 8]);
-    g.beginPath(); g.moveTo(t.x0, t.y0); g.lineTo(t.x1, t.y1); g.stroke();
-    g.setLineDash([]);
-    const a = Math.atan2(t.y1 - t.y0, t.x1 - t.x0);
-    g.translate(t.x1, t.y1); g.rotate(a);
-    g.fillStyle = 'rgba(224,112,79,0.85)';
-    g.beginPath(); g.moveTo(0, 0); g.lineTo(-16, -7); g.lineTo(-16, 7); g.closePath(); g.fill();
     g.restore();
   }
 

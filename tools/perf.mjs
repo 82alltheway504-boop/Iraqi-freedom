@@ -32,11 +32,30 @@ const sample = async (label, seconds = 6) => {
 const results = [];
 results.push(await sample('opening force, quiet', 4));
 
-// Heavy load: two large forces meeting head-on in the middle of the map.
+// Heavy load: two large forces meeting head-on in the middle of the map, with
+// every unit of the player's side spending its whole turn at once.
+const marchOrders = () => {
+  const g = window.game, w = g.world, T = (t) => t * 32 + 16;
+  const goal = { x: T(44), y: T(42) };
+  for (const u of w.unitsOf(0)) {
+    for (const foe of w.attackableTargets(u)) { if (!w.attack(u, foe).ok) break; }
+    if (!u.canAct) continue;
+    const W = w.grid.w;
+    let pick = null, bd = Infinity;
+    for (const [idx] of w.reachable(u)) {
+      const tx = idx % W, ty = (idx / W) | 0;
+      if (w.occupantAt(tx, ty, u)) continue;
+      const d = Math.hypot(T(tx) - goal.x, T(ty) - goal.y);
+      if (d < bd) { bd = d; pick = [tx, ty]; }
+    }
+    if (pick) w.moveUnit(u, pick[0], pick[1]);
+  }
+};
+
 await page.evaluate(() => {
   const g = window.game, w = g.world;
   const T = (t) => t * 32 + 16;
-  g.world.fog.revealAll();
+  w.fog.revealAll();
   for (let i = 0; i < 45; i++) {
     w.spawnUnit(['mbt', 'ifv', 'rifle_squad', 'at_team', 'humvee'][i % 5], 0,
       T(34 + (i % 7)), T(40 + ((i / 7) | 0)));
@@ -45,11 +64,26 @@ await page.evaluate(() => {
     w.spawnUnit(['asad_mbt', 'saqr_ifv', 'militia', 'rpg_team', 'technical'][i % 5], 1,
       T(50 + (i % 7)), T(40 + ((i / 7) | 0)));
   }
-  w.issueMove(w.unitsOf(0), T(54), T(42), true);
-  w.issueMove(w.unitsOf(1), T(32), T(42), true);
+  for (const u of w.units) u.ap = u.apMax;
+  g.ai.enabled = true;            // the mission holds it back until you deploy
   g.camera.centerOn(T(44), T(42));
   g.camera.zoom = 0.8;
 });
+
+// How long a whole side's turn takes to resolve is the number a turn-based
+// game lives or dies by: it is the pause after the player taps END TURN.
+const turnMs = await page.evaluate((fn) => {
+  const march = new Function('return ' + fn)();
+  const t0 = performance.now();
+  march();
+  const mine = performance.now() - t0;
+  const t1 = performance.now();
+  window.game.ai.takeTurn();
+  return { mine: +mine.toFixed(1), guard: +(performance.now() - t1).toFixed(1) };
+}, marchOrders.toString());
+console.log(`90-unit side turn resolves in ${turnMs.mine} ms (player) / ` +
+  `${turnMs.guard} ms (Guard)`);
+
 results.push(await sample('~90-unit battle, zoom 0.8', 8));
 
 await page.evaluate(() => { window.game.camera.zoom = 0.42; });

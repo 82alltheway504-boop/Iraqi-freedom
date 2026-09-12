@@ -57,7 +57,8 @@ export class Unit extends Entity {
     this.ap = d.ap;
     this.movedThisTurn = false;
     this.attackedThisTurn = false;
-    this.heldPosition = true;
+    // Earned by actually holding ground for a turn, not granted on arrival.
+    this.heldPosition = false;
     this.entrench = 0;
     this.starved = false;
     this.sorties = d.sorties || 0;

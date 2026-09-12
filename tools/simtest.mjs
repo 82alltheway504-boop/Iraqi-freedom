@@ -1,188 +1,238 @@
-// Headless smoke test for the simulation. Runs the real tick loop with no DOM,
-// so regressions in economy, production, pathing or combat show up instantly.
+// Headless test for the systems around the turn ruleset: multi-turn pathing,
+// the counter matrix played out as an actual fight, garrison resistance, the
+// rules of engagement, veterancy, capture income, fog, and the cost of a big
+// turn. tools/turntest.mjs covers the ruleset itself; this covers what happens
+// when two sides are turned loose on each other with no DOM in sight.
 import { World } from '../src/sim/world.js';
+import { TurnManager } from '../src/sim/turns.js';
+import { Commander } from '../src/sim/commander.js';
+import { AiCommander } from '../src/sim/ai.js';
 import { FACTION } from '../src/sim/defs.js';
+import { Damage } from '../src/sim/rules.js';
 import { T, TILE } from '../src/world/terrain.js';
-const DT = 1 / 30;
+
 let failures = 0;
 const check = (name, cond, detail = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
   if (!cond) failures++;
 };
-const run = (w, seconds) => { for (let i = 0; i < seconds / DT; i++) w.tick(DT); };
 const tc = (t) => t * TILE + TILE / 2;
+const tileOf = (e) => [Math.floor(e.x / TILE), Math.floor(e.y / TILE)];
 
-// --- scenario --------------------------------------------------------------
-const w = new World({ width: 64, height: 48, seed: 1234 });
-w.fog.revealAll();                       // fog is tested separately
-const ctf = w.addPlayer(FACTION.CTF, true, 'Task Force');
-const rg = w.addPlayer(FACTION.RG, false, 'Guard');
-ctf.supply = 5000;
+function build({ w = 40, h = 30, seed = 7, res = 4000 } = {}) {
+  const world = new World({ width: w, height: h, seed });
+  world.fog.revealAll();
+  const me = world.addPlayer(FACTION.CTF, true, 'Task Force');
+  const foe = world.addPlayer(FACTION.RG, false, 'Guard');
+  for (const p of [me, foe]) p.res = { fuel: res, water: res, oil: res };
+  world.commander = new Commander();
+  me.perks = world.commander.effects;
+  const turns = new TurnManager(world);
+  world.turns = turns;
+  turns.begin();
+  return { world, turns, me, foe };
+}
 
-w.grid.fillRect(20, 10, 6, 14, T.PALM);  // obstacle to path around
+/** Movement is committed instantly; only the animation lags. Skip it. */
+const settle = (w) => { for (const u of [...w.units]) if (u.moving) u.finishMove(w); };
 
-const hq = w.placeBuilding('command_post', 0, 4, 20);
-const dep = w.placeBuilding('supply_depot', 0, 9, 20);
-w.placeBuilding('barracks', 0, 4, 26);
-w.addCache(tc(14), tc(22), 4000);
+/** Empty a unit's magazine into the softest thing it can reach. */
+function shootAll(w, u) {
+  let fired = false;
+  for (;;) {
+    const targets = w.attackableTargets(u);
+    if (!targets.length) break;
+    targets.sort((a, b) => a.hp - b.hp);
+    if (!w.attack(u, targets[0]).ok) break;
+    fired = true;
+  }
+  return fired;
+}
 
-console.log('--- economy ---');
-const supply0 = ctf.supply;
-const trucks = w.unitsOf(0).filter((u) => u.def.harvester);
-check('depot ships a free supply truck', trucks.length === 1);
-run(w, 45);
-check('supply income is flowing', ctf.supply > supply0, `+${Math.round(ctf.supply - supply0)} in 45 s`);
-check('cache is being drained', w.caches[0].amount < 4000, `${Math.round(w.caches[0].amount)} left`);
+/**
+ * Where to stand. A unit that can already shoot from the far edge of its own
+ * reach stays there — walking to knife range of something that outguns you is
+ * how AT teams lose fights they should win — otherwise it closes.
+ */
+function bestTile(w, u, goal) {
+  const W = w.grid.w;
+  const range = u.weaponRange();
+  const min = u.weapons[0]?.minRange || 0;
+  let pick = null, best = -Infinity;
+  for (const [idx] of w.reachable(u)) {
+    const tx = idx % W, ty = (idx / W) | 0;
+    if (w.occupantAt(tx, ty, u)) continue;
+    const d = Math.hypot(tc(tx) - goal.x, tc(ty) - goal.y);
+    const score = (d <= range && d >= min) ? 1000 + d : -d;
+    if (score > best) { best = score; pick = [tx, ty]; }
+  }
+  return pick;
+}
 
-console.log('\n--- power ---');
-check('command post generates power', ctf.powerGen === 30, `gen ${ctf.powerGen} use ${ctf.powerUse}`);
-check('brown-out detected', ctf.lowPower === (ctf.powerGen < ctf.powerUse),
-  `lowPower=${ctf.lowPower}`);
+/** Spend a unit's turn: shoot what it can reach, otherwise take up a firing position. */
+function actWith(w, u) {
+  if (shootAll(w, u) || !u.canAct) return;
+  const foes = w.units.filter((e) => e.alive && w.isHostile(u, e));
+  if (!foes.length) return;
+  const goal = foes.reduce((best, e) =>
+    Math.hypot(e.x - u.x, e.y - u.y) < Math.hypot(best.x - u.x, best.y - u.y) ? e : best);
+  const pick = bestTile(w, u, goal);
+  if (!pick) return;
+  w.moveUnit(u, pick[0], pick[1]);
+  settle(w);
+  shootAll(w, u);
+}
 
-console.log('\n--- production ---');
-check('can queue a rifle squad', w.queueUnit(0, 'rifle_squad'));
-check('cannot queue a tank without a motor pool', !w.queueUnit(0, 'mbt'));
-const before = w.unitsOf(0).length;
-run(w, 12);
-check('rifle squad rolled off the line', w.unitsOf(0).length > before);
+/** Play `rounds` full rounds — both sides get a turn in each. */
+function fight(world, turns, rounds) {
+  for (let i = 0; i < rounds * 2; i++) {
+    for (const u of world.unitsOf(turns.activeIndex)) actWith(world, u);
+    turns.endTurn();
+  }
+}
 
-console.log('\n--- construction ---');
-const place = w.startStructure(0, 'motor_pool', 10, 25);
-check('motor pool placed inside build radius', place.ok, place.reason || '');
-check('placement rejected outside build radius', !w.startStructure(0, 'generator', 58, 4).ok);
-run(w, 30);
-check('motor pool finished', w.hasBuilding(0, 'motor_pool'));
-check('tank now queueable', w.canProduce(0, 'mbt'));
-
-console.log('\n--- pathing around an obstacle ---');
-const scout = w.spawnUnit('humvee', 0, tc(6), tc(4));
-scout.orderMove(w, tc(40), tc(16));
-run(w, 30);
-const arrived = Math.hypot(scout.x - tc(40), scout.y - tc(16));
-check('scout drove around the palm grove', arrived < 90, `${Math.round(arrived)} px from the objective`);
-check('scout did not end up inside the grove',
-  w.grid.get((scout.x / TILE) | 0, (scout.y / TILE) | 0) !== T.PALM);
+console.log('--- marching across the map ---');
+{
+  const { world, turns } = build({ w: 64, h: 48, seed: 1234 });
+  world.grid.fillRect(20, 10, 6, 14, T.PALM);      // a grove to route around
+  const scout = world.spawnUnit('humvee', 0, tc(6), tc(4));
+  const goal = { tx: 40, ty: 16 };
+  let turnsTaken = 0;
+  for (let i = 0; i < 12; i++) {
+    const W = world.grid.w;
+    let pick = null, bd = Infinity;
+    for (const [idx] of world.reachable(scout)) {
+      const tx = idx % W, ty = (idx / W) | 0;
+      if (world.occupantAt(tx, ty, scout)) continue;
+      const d = Math.hypot(tx - goal.tx, ty - goal.ty);
+      if (d < bd) { bd = d; pick = [tx, ty]; }
+    }
+    if (!pick) break;
+    world.moveUnit(scout, pick[0], pick[1]);
+    settle(world);
+    turnsTaken++;
+    if (bd < 1) break;
+    turns.endTurn(); turns.endTurn();          // hand the Guard a turn and come back
+  }
+  const [sx, sy] = tileOf(scout);
+  check('scout reached the far objective', Math.hypot(sx - goal.tx, sy - goal.ty) < 2,
+    `${turnsTaken} turns, ended at ${sx},${sy}`);
+  check('scout never drove through the palm grove', world.grid.get(sx, sy) !== T.PALM);
+}
 
 console.log('\n--- counter matrix in practice ---');
 {
-  const t = new World({ width: 40, height: 30, seed: 7 });
-  t.fog.revealAll();
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const rifles = [0, 1, 2, 3].map((i) => t.spawnUnit('rifle_squad', 0, tc(10), tc(10 + i)));
-  const tank = t.spawnUnit('asad_mbt', 1, tc(16), tc(11));
-  rifles.forEach((r) => r.orderAttack(t, tank.id));
-  tank.orderAttack(t, rifles[0].id);
-  run(t, 40);
-  check('4 rifle squads lose to 1 tank', tank.alive && t.unitsOf(0).length < 4,
-    `tank hp ${Math.round(tank.hp)}, squads left ${t.unitsOf(0).length}`);
+  const { world, turns } = build({ seed: 7 });
+  const rifles = [0, 1, 2, 3].map((i) => world.spawnUnit('rifle_squad', 0, tc(10), tc(10 + i)));
+  const tank = world.spawnUnit('asad_mbt', 1, tc(16), tc(11));
+  fight(world, turns, 6);
+  check('4 rifle squads lose to 1 tank', tank.alive && world.unitsOf(0).length < 4,
+    `tank ${Math.round(tank.hpFrac * 100)}%, squads left ${world.unitsOf(0).length}`);
 }
 {
-  const t = new World({ width: 40, height: 30, seed: 7 });
-  t.fog.revealAll();
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const at = [0, 1].map((i) => t.spawnUnit('at_team', 0, tc(10), tc(10 + i)));
-  const tank = t.spawnUnit('asad_mbt', 1, tc(17), tc(11));
-  at.forEach((r) => r.orderAttack(t, tank.id));
-  tank.orderAttack(t, at[0].id);
-  run(t, 40);
+  const { world, turns } = build({ seed: 7 });
+  [0, 1].map((i) => world.spawnUnit('at_team', 0, tc(10), tc(10 + i)));
+  const tank = world.spawnUnit('asad_mbt', 1, tc(17), tc(11));
+  fight(world, turns, 6);
   check('2 AT teams beat 1 tank (equal-ish cost)', !tank.alive,
-    `AT left ${t.unitsOf(0).length}`);
+    `AT left ${world.unitsOf(0).length}`);
 }
 {
-  const t = new World({ width: 40, height: 30, seed: 9 });
-  t.fog.revealAll();
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const b = t.placeBuilding('civil_block', -1, 14, 10);
-  const mil = t.spawnUnit('militia', 1, tc(14), tc(14));
-  mil.orderGarrison(t, b.id);
-  run(t, 10);
-  check('militia garrisoned the block', mil.garrisonedIn === b.id);
-  const rif = t.spawnUnit('rifle_squad', 0, tc(9), tc(11));
-  rif.orderAttack(t, b.id);
-  run(t, 30);
+  const { world, turns } = build({ seed: 9 });
+  const block = world.placeBuilding('civil_block', -1, 14, 10);
+  const mil = world.spawnUnit('militia', 1, tc(14), tc(13));
+  const inside = world.garrisonInto(mil, block);
+  check('militia garrisoned the block', inside.ok && mil.garrisonedIn === block.id,
+    inside.reason || '');
+  const rif = world.spawnUnit('rifle_squad', 0, tc(11), tc(11));
+  for (let i = 0; i < 5; i++) {
+    while (world.attack(rif, block).ok) { /* empty the magazine */ }
+    turns.endTurn(); turns.endTurn();
+  }
   check('rifles barely scratch a garrison', mil.alive && mil.hpFrac > 0.6,
-    `occupant hp ${Math.round(mil.hpFrac * 100)}%`);
+    `occupant at ${Math.round(mil.hpFrac * 100)}%`);
 }
 
 console.log('\n--- rules of engagement ---');
 {
-  const t = new World({ width: 40, height: 30, seed: 11 });
-  t.fog.revealAll();
-  const p = t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const civ = t.placeBuilding('civil_hall', -1, 14, 10);
-  const tank = t.spawnUnit('mbt', 0, tc(10), tc(11));
-  tank.orderAttack(t, civ.id);
-  const s0 = p.support;
-  run(t, 40);
-  check('shelling a civilian building costs Local Support', p.support < s0 - 10,
-    `${Math.round(s0)}% -> ${Math.round(p.support)}%`);
-  check('tank will not auto-target civilians',
-    (() => { const t2 = t.acquireTarget(tank, 400); return !t2 || !t2.def?.civilian; })());
+  const { world, turns, me } = build({ seed: 11 });
+  world.placeBuilding('civil_hall', -1, 14, 10);
+  const mortar = world.spawnUnit('mortar_team', 0, tc(10), tc(14));
+  const foe = world.spawnUnit('militia', 1, tc(15), tc(12));
+  const s0 = me.support;
+  for (let i = 0; i < 4 && foe.alive; i++) {
+    while (world.attack(mortar, foe).ok) { /* fire for effect */ }
+    turns.endTurn(); turns.endTurn();
+  }
+  check('shelling next to a civilian building costs Local Support', me.support < s0,
+    `${Math.round(s0)}% -> ${Math.round(me.support)}%`);
+  const hall = world.buildings.find((b) => b.defId === 'civil_hall');
+  check('a civilian building is never a legal target', !world.canAttack(mortar, hall).ok,
+    world.canAttack(mortar, hall).reason);
+  const ai = new AiCommander(world, 1);
+  const aim = ai._objectiveFor ? ai._objectiveFor(foe) : null;
+  check('the Guard does not march on civilians',
+    !aim || !world.buildings.some((b) => b.def.civilian && b.cx === aim.x && b.cy === aim.y));
 }
 
 console.log('\n--- veterancy ---');
 {
-  const t = new World({ width: 40, height: 30, seed: 3 });
-  t.fog.revealAll();
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const tank = t.spawnUnit('mbt', 0, tc(10), tc(10));
-  for (let i = 0; i < 6; i++) {
-    const v = t.spawnUnit('technical', 1, tc(15), tc(8 + i));
-    v.orderAttack(t, tank.id);
+  const { world, turns } = build({ seed: 3 });
+  const tank = world.spawnUnit('mbt', 0, tc(10), tc(10));
+  for (let i = 0; i < 6; i++) world.spawnUnit('technical', 1, tc(14), tc(7 + i));
+  for (let i = 0; i < 8 && world.unitsOf(1).length; i++) {
+    for (const u of world.unitsOf(0)) actWith(world, u);
+    turns.endTurn(); turns.endTurn();
   }
-  tank.aggro = true;
-  run(t, 60);
   check('tank earned a promotion', tank.rank > 0, `rank ${tank.rank}, xp ${tank.xp.toFixed(1)}`);
 }
 
-console.log('\n--- capture ---');
+console.log('\n--- capture pays out ---');
 {
-  const t = new World({ width: 40, height: 30, seed: 5 });
-  t.fog.revealAll();
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  const fuel = t.placeBuilding('fuel_depot', -1, 16, 12);
-  const eng = t.spawnUnit('engineer', 0, tc(10), tc(13));
-  eng.orderCapture(t, fuel.id);
-  run(t, 30);
-  const owned = t.buildings.find((b) => b.defId === 'fuel_depot');
-  check('engineer captured the fuel depot', owned && owned.owner === 0);
-  const s0 = t.players[0].supply;
-  run(t, 10);
-  check('captured depot trickles supply', t.players[0].supply > s0,
-    `+${Math.round(t.players[0].supply - s0)} in 10 s`);
+  const { world, turns, me } = build({ seed: 5, res: 0 });
+  const depot = world.placeBuilding('fuel_depot', -1, 16, 12);
+  const eng = world.spawnUnit('engineer', 0, tc(15), tc(13));
+  const cap = world.capture(eng, depot);
+  check('engineer captured the fuel depot', cap.ok && depot.owner === 0, cap.reason || '');
+  const before = me.res.fuel;
+  turns.endTurn(); turns.endTurn();
+  check('the captured depot pays fuel at the turn start', me.res.fuel > before,
+    `+${me.res.fuel - before} fuel`);
 }
 
 console.log('\n--- fog ---');
 {
-  const t = new World({ width: 40, height: 30, seed: 5 });
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
-  t.spawnUnit('humvee', 0, tc(10), tc(10));
-  run(t, 1);
-  check('own position is lit', t.fog.isVisible(10, 10));
-  check('far side of the map is dark', !t.fog.isVisible(35, 25));
+  const world = new World({ width: 40, height: 30, seed: 5 });
+  world.addPlayer(FACTION.CTF, true, 'a');
+  world.addPlayer(FACTION.RG, false, 'b');
+  world.spawnUnit('humvee', 0, tc(10), tc(10));
+  world.tick(1 / 30);
+  check('own position is lit', world.fog.isVisible(10, 10));
+  check('far side of the map is dark', !world.fog.isVisible(35, 25));
 }
 
-console.log('\n--- performance ---');
+console.log('\n--- cost of a big turn ---');
 {
-  const t = new World({ width: 96, height: 72, seed: 42 });
-  t.addPlayer(FACTION.CTF, true, 'a'); t.addPlayer(FACTION.RG, false, 'b');
+  const { world, turns } = build({ w: 96, h: 72, seed: 42 });
+  const ai = new AiCommander(world, 1, { maxArmy: 0 });
   for (let i = 0; i < 60; i++) {
-    const a = t.spawnUnit(i % 3 === 0 ? 'mbt' : i % 3 === 1 ? 'rifle_squad' : 'ifv', 0,
+    world.spawnUnit(i % 3 === 0 ? 'mbt' : i % 3 === 1 ? 'rifle_squad' : 'ifv', 0,
       tc(6 + (i % 10)), tc(6 + ((i / 10) | 0) * 2));
-    a.orderMove(t, tc(80), tc(60), true);
-  }
-  for (let i = 0; i < 60; i++) {
-    const b = t.spawnUnit(i % 3 === 0 ? 'asad_mbt' : i % 3 === 1 ? 'militia' : 'technical', 1,
+    world.spawnUnit(i % 3 === 0 ? 'asad_mbt' : i % 3 === 1 ? 'militia' : 'technical', 1,
       tc(80 - (i % 10)), tc(62 - ((i / 10) | 0) * 2));
-    b.orderMove(t, tc(10), tc(10), true);
   }
   const t0 = performance.now();
-  run(t, 30);
-  const ms = performance.now() - t0;
-  const perTick = ms / (30 / DT);
-  check('120-unit battle stays inside the frame budget', perTick < 6,
-    `${perTick.toFixed(2)} ms/tick (16.7 ms budget)`);
-  console.log(`      survivors: CTF ${t.unitsOf(0).length}, RG ${t.unitsOf(1).length}`);
+  for (let r = 0; r < 3; r++) {
+    for (const u of world.unitsOf(0)) actWith(world, u);
+    turns.endTurn();
+    ai.takeTurn();
+    settle(world);
+    turns.endTurn();
+  }
+  const perTurn = (performance.now() - t0) / 6;
+  check('a 120-unit turn resolves fast enough to feel instant', perTurn < 400,
+    `${perTurn.toFixed(0)} ms per side-turn`);
+  console.log(`      survivors: CTF ${world.unitsOf(0).length}, RG ${world.unitsOf(1).length}`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

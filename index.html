@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#12160f">
-<meta name="description" content="Operation Iraqi Freedom — a tactical real-time strategy prototype for touch.">
+<meta name="description" content="Operation Iraqi Freedom — a turn-based tactical strategy prototype for touch.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -22,21 +22,28 @@
   <div id="hud" hidden>
     <!-- Top strip: economy, power, local support, clock -->
     <div id="topbar">
-      <div class="stat" id="statSupply" title="Supply">
-        <svg viewBox="0 0 24 24" class="gi"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5" class="ln"/><path d="M12 13v8" class="ln"/></svg>
-        <b id="supplyVal">0</b>
+      <div class="stat res" id="statFuel" title="Fuel — vehicles and aircraft">
+        <svg viewBox="0 0 24 24" class="gi f"><path d="M6 3h8l4 4v14H6z"/><path d="M9 7h5" class="ln"/><path d="M9 11h5" class="ln"/></svg>
+        <b id="fuelVal">0</b><i class="delta" id="fuelDelta"></i>
       </div>
-      <div class="stat" id="statPower" title="Power">
-        <svg viewBox="0 0 24 24" class="gi"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
-        <b id="powerVal">0</b>
+      <div class="stat res" id="statWater" title="Water — infantry">
+        <svg viewBox="0 0 24 24" class="gi w"><path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/></svg>
+        <b id="waterVal">0</b><i class="delta" id="waterDelta"></i>
+      </div>
+      <div class="stat res" id="statOil" title="Oil — structures and fortifications">
+        <svg viewBox="0 0 24 24" class="gi o"><path d="M4 20h16M7 20V9l5-5 5 5v11"/><path d="M12 20v-6" class="ln"/></svg>
+        <b id="oilVal">0</b><i class="delta" id="oilDelta"></i>
       </div>
       <div class="stat wide" id="statSupport" title="Local Support">
-        <span class="lbl">SUPPORT</span>
+        <span class="lbl">SUP</span>
         <div class="meter"><i id="supportFill"></i></div>
-        <b id="supportVal">100%</b>
       </div>
       <div class="grow"></div>
-      <div class="stat" id="statClock"><b id="clockVal">0:00</b></div>
+      <button class="stat tappable" id="btnCommander" title="Commander">
+        <span class="lbl" id="cmdRank">LT</span>
+        <span class="pip" id="cmdPoints" hidden>0</span>
+      </button>
+      <div class="stat" id="statTurn"><span class="lbl">TURN</span><b id="turnVal">1</b></div>
       <button class="iconbtn" id="btnSound" aria-label="Toggle sound">
         <svg viewBox="0 0 24 24" class="gi"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a5 5 0 010 8" class="ln"/></svg>
       </button>
@@ -61,9 +68,10 @@
         <canvas id="minimap"></canvas>
       </div>
       <nav id="tabs">
-        <button data-tab="units" class="on">UNITS</button>
-        <button data-tab="build">BUILD</button>
-        <button data-tab="support">AIR</button>
+        <button data-tab="infantry" class="on">INF</button>
+        <button data-tab="vehicle">VEH</button>
+        <button data-tab="air">AIR</button>
+        <button data-tab="structure">WRK</button>
       </nav>
       <div id="palette"></div>
     </aside>
@@ -73,6 +81,10 @@
       <div id="selection"></div>
       <div id="cmdbar"></div>
     </div>
+    <button id="btnEndTurn" class="tappable">
+      <span class="lbl">END TURN</span>
+      <span class="sub" id="endTurnHint"></span>
+    </button>
 
     <div id="notices"></div>
     <div id="hint"></div>

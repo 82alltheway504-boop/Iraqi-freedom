@@ -55,7 +55,10 @@ const INFANTRY = {
     kind: 'unit', category: Category.INFANTRY, res: Res.WATER,
     cost: 80, upkeep: 4, buildTurns: 1, hp: 130, armor: Armor.INFANTRY, loco: FOOT,
     ap: 4, vision: 8, radius: 7, from: 'barracks', tier: 0,
-    weapon: W(78, Damage.ROCKET, 7, { minRange: tiles(2), projectile: 'rocket', attackAp: 3 }),
+    // One missile a turn — 3 of its 4 points — so the warhead has to be worth
+    // the whole turn. Two teams working together kill a main battle tank in
+    // about six turns and will lose one of their own doing it.
+    weapon: W(105, Damage.ROCKET, 7, { minRange: tiles(2), projectile: 'rocket', attackAp: 3 }),
     canGarrison: true, crushable: true, entrenches: true,
     desc: 'Guided missiles. Outranges every tank on the map, and cannot fire at what is on top of it.',
   },

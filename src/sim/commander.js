@@ -24,6 +24,11 @@ export class Commander {
   get rankIndex() { return commanderRankFor(this.xp); }
   get rank() { return COMMANDER_RANKS[this.rankIndex]; }
   get rankName() { return this.rank.name; }
+
+  /** Short badge code for the heads-up display. */
+  get rankCode() {
+    return ['LT', 'CPT', 'MAJ', 'LTC', 'COL', 'BG', 'MG'][this.rankIndex] || 'LT';
+  }
   get totalPoints() { return pointsAtRank(this.rankIndex); }
   get availablePoints() { return this.totalPoints - this.spent; }
 

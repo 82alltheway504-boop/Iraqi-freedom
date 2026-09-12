@@ -32,7 +32,7 @@ const r = await page.evaluate(() => ({
   audio: window.game.audio.ready, music: window.game.music.playing,
 }));
 check('game boots', r.running && r.units > 0, `${r.units} units, ${r.buildings} buildings, ${r.fps} fps`);
-check('procedural sprites generated', r.sprites === 13, `${r.sprites} unit sprite sets`);
+check('procedural sprites generated', r.sprites >= 20, `${r.sprites} unit sprite sets`);
 check('audio and score running', r.audio && r.music);
 
 // Same gestures as the served build.
@@ -51,19 +51,34 @@ await page.waitForTimeout(350);
 check('tap orders a move',
   await page.evaluate((id) => !!window.game.world.entityById(id).path, pos.id));
 
-// Play a stretch of the mission to be sure the bundling did not break the sim.
-await page.evaluate(() => {
-  const g = window.game;
-  g.world.issueMove(g.world.unitsOf(0), 31 * 32, 52 * 32, true);
+// Exercise the turn loop to be sure bundling did not break the simulation.
+const prog = await page.evaluate(async () => {
+  const g = window.game, w = g.world;
+  const u = w.unitsOf(0).find(x => x.category === 'vehicle');
+  const apBefore = u.ap;
+  const W = w.grid.w;
+  let pick = null, best = -1;
+  for (const [idx, n] of w.reachable(u)) {
+    if (n.ap > best && !w.occupantAt(idx % W, (idx / W) | 0, u)) { best = n.ap; pick = idx; }
+  }
+  const moved = w.moveUnit(u, pick % W, (pick / W) | 0);
+  for (const x of w.units) if (x.moving) x.finishMove(w);
+  // Read the spent points before ending the turn: the next turn start refills
+  // them, so a later read would always show a full bar.
+  const apAfter = u.ap;
+  const turnBefore = g.turns.turn;
+  document.getElementById('btnEndTurn').click();
+  await new Promise(r => setTimeout(r, 3200));
+  return {
+    moveOk: moved.ok, apBefore, apAfter,
+    turnBefore, turnAfter: g.turns.turn, playerTurn: g.turns.isPlayerTurn,
+  };
 });
-await page.waitForTimeout(9000);
-const prog = await page.evaluate(() => ({
-  objective: window.game.mission.obj('recon').state,
-  time: Math.round(window.game.mission.time),
-  reinforced: window.game.mission.reinforced,
-}));
-check('mission logic advances', prog.objective === 'done' && prog.reinforced,
-  `recon ${prog.objective} at ${prog.time}s`);
+check('action points are spent on movement', prog.moveOk && prog.apAfter < prog.apBefore,
+  `${prog.apBefore} -> ${prog.apAfter} AP`);
+check('the turn cycle completes offline',
+  prog.turnAfter === prog.turnBefore + 1 && prog.playerTurn,
+  `turn ${prog.turnBefore} -> ${prog.turnAfter}`);
 
 check('no errors', errs.length === 0, errs[0] || '');
 await browser.close();

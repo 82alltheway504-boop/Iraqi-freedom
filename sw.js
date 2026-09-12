@@ -1,6 +1,6 @@
 // Offline cache. The whole game is a few hundred kilobytes of text — no
 // binary assets at all — so it caches in one go and then runs with no network.
-const CACHE = 'oif-talon-v1';
+const CACHE = 'oif-talon-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -26,10 +26,12 @@ const ASSETS = [
   './src/missions/map01.js',
   './src/render/renderer.js',
   './src/sim/ai.js',
+  './src/sim/commander.js',
   './src/sim/defs.js',
   './src/sim/entity.js',
   './src/sim/fx.js',
   './src/sim/rules.js',
+  './src/sim/turns.js',
   './src/sim/world.js',
   './src/ui/hud.js',
   './src/ui/minimap.js',
