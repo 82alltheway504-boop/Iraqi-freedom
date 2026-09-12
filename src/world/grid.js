@@ -1,4 +1,4 @@
-import { TERRAIN, TILE, T, FOOT, WHEEL, TRACK } from './terrain.js';
+import { TERRAIN, TILE, T, FOOT, WHEEL, TRACK, AIR } from './terrain.js';
 import { clamp } from '../core/math.js';
 
 /**
@@ -12,6 +12,7 @@ export class Grid {
     this.h = h;
     this.terrain = new Uint8Array(w * h).fill(fill);
     this.blocked = new Uint8Array(w * h);   // structure / wreck occupancy
+    this.wire = new Uint8Array(w * h);      // obstacle belts — see cost()
     this.sightBlock = new Uint8Array(w * h);
     this.version = 0;                       // bumped whenever passability changes
   }
@@ -41,9 +42,31 @@ export class Grid {
   /** Movement cost for a locomotion class, Infinity when impassable. */
   cost(tx, ty, loco) {
     if (!this.inBounds(tx, ty)) return Infinity;
+    // Aircraft overfly everything inside the map, structures included.
+    if (loco === AIR) return 1;
     const i = ty * this.w + tx;
     if (this.blocked[i]) return Infinity;
-    return TERRAIN[this.terrain[i]].cost[loco];
+    // Wire is impassable on foot and on wheels; tracks grind through it.
+    if (this.wire[i] && loco !== TRACK) return Infinity;
+    return TERRAIN[this.terrain[i]].cost[loco] + (this.wire[i] ? 1 : 0);
+  }
+
+  /** Whole action points to step onto a tile. */
+  apCost(tx, ty, loco) {
+    if (!this.inBounds(tx, ty)) return Infinity;
+    if (loco === AIR) return 1;
+    const i = ty * this.w + tx;
+    if (this.blocked[i]) return Infinity;
+    if (this.wire[i] && loco !== TRACK) return Infinity;
+    return TERRAIN[this.terrain[i]].ap[loco] + (this.wire[i] ? 1 : 0);
+  }
+
+  /** Lay or lift a belt of wire. */
+  setWire(tx, ty, w, h, on) {
+    for (let y = ty; y < ty + h; y++)
+      for (let x = tx; x < tx + w; x++)
+        if (this.inBounds(x, y)) this.wire[y * this.w + x] = on ? 1 : 0;
+    this.version++;
   }
 
   passable(tx, ty, loco) { return this.cost(tx, ty, loco) !== Infinity; }
@@ -101,4 +124,4 @@ export class Grid {
   get pixelHeight() { return this.h * TILE; }
 }
 
-export { FOOT, WHEEL, TRACK, TILE, T };
+export { FOOT, WHEEL, TRACK, AIR, TILE, T };

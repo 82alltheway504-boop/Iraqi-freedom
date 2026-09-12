@@ -136,6 +136,62 @@ export class Pathfinder {
     return this._smooth(sx, sy, tiles, loco);
   }
 
+  /**
+   * Every tile reachable within an action-point budget, by Dijkstra.
+   * This is what lets the interface show a player exactly where a unit can go
+   * before they commit — the single most important affordance in a turn-based
+   * tactics game.
+   * @returns {Map<number, {ap:number, from:number}>} keyed by tile index.
+   */
+  reachable(sx, sy, loco, budget) {
+    const grid = this.grid, W = grid.w;
+    const out = new Map();
+    if (!grid.inBounds(sx, sy) || budget <= 0) return out;
+    const start = sy * W + sx;
+    out.set(start, { ap: 0, from: -1 });
+
+    // Small budgets mean a small frontier, so a simple sorted frontier beats
+    // the ceremony of a heap here.
+    let frontier = [start];
+    while (frontier.length) {
+      const next = [];
+      for (const cur of frontier) {
+        const cx = cur % W, cy = (cur / W) | 0;
+        const spent = out.get(cur).ap;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            if (dx !== 0 && dy !== 0) continue;          // 4-way: AP must be countable
+            const nx = cx + dx, ny = cy + dy;
+            const step = grid.apCost(nx, ny, loco);
+            if (step === Infinity) continue;
+            const total = spent + step;
+            if (total > budget) continue;
+            const ni = ny * W + nx;
+            const prev = out.get(ni);
+            if (prev && prev.ap <= total) continue;
+            out.set(ni, { ap: total, from: cur });
+            next.push(ni);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return out;
+  }
+
+  /** Walk the `reachable` map back from a destination to a tile list. */
+  static traceBack(map, goalIndex, W) {
+    const tiles = [];
+    let cur = goalIndex;
+    let guard = 0;
+    while (cur >= 0 && map.has(cur) && guard++ < 4096) {
+      tiles.push({ tx: cur % W, ty: (cur / W) | 0, ap: map.get(cur).ap });
+      cur = map.get(cur).from;
+    }
+    return tiles.reverse();
+  }
+
   /** Drop waypoints we can walk straight past — removes the A* staircase. */
   _smooth(sx, sy, tiles, loco) {
     const grid = this.grid, W = grid.w;
