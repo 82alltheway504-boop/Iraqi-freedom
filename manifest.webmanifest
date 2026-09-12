@@ -1,0 +1,18 @@
+{
+  "name": "Operation Iraqi Freedom — Task Force Talon",
+  "short_name": "Task Force Talon",
+  "description": "A turn-based tactical strategy prototype built for touch. Original art, original score, no downloads.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#12160f",
+  "theme_color": "#12160f",
+  "categories": ["games", "strategy"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

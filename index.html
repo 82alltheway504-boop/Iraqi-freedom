@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12160f">
+<meta name="description" content="Operation Iraqi Freedom — a turn-based tactical strategy prototype for touch.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Task Force Talon">
+<title>Operation Iraqi Freedom — Task Force Talon</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <div id="hud" hidden>
+    <!-- Top strip: economy, power, local support, clock -->
+    <div id="topbar">
+      <div class="stat res" id="statFuel" title="Fuel — vehicles and aircraft">
+        <svg viewBox="0 0 24 24" class="gi f"><path d="M6 3h8l4 4v14H6z"/><path d="M9 7h5" class="ln"/><path d="M9 11h5" class="ln"/></svg>
+        <b id="fuelVal">0</b><i class="delta" id="fuelDelta"></i>
+      </div>
+      <div class="stat res" id="statWater" title="Water — infantry">
+        <svg viewBox="0 0 24 24" class="gi w"><path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/></svg>
+        <b id="waterVal">0</b><i class="delta" id="waterDelta"></i>
+      </div>
+      <div class="stat res" id="statOil" title="Oil — structures and fortifications">
+        <svg viewBox="0 0 24 24" class="gi o"><path d="M4 20h16M7 20V9l5-5 5 5v11"/><path d="M12 20v-6" class="ln"/></svg>
+        <b id="oilVal">0</b><i class="delta" id="oilDelta"></i>
+      </div>
+      <div class="stat wide" id="statSupport" title="Local Support">
+        <span class="lbl">SUP</span>
+        <div class="meter"><i id="supportFill"></i></div>
+      </div>
+      <div class="grow"></div>
+      <button class="stat tappable" id="btnCommander" title="Commander">
+        <span class="lbl" id="cmdRank">LT</span>
+        <span class="pip" id="cmdPoints" hidden>0</span>
+      </button>
+      <div class="stat" id="statTurn"><span class="lbl">TURN</span><b id="turnVal">1</b></div>
+      <button class="iconbtn" id="btnSound" aria-label="Toggle sound">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a5 5 0 010 8" class="ln"/></svg>
+      </button>
+      <button class="iconbtn" id="btnMenu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" class="gi"><path d="M3 6h18M3 12h18M3 18h18" class="ln"/></svg>
+      </button>
+    </div>
+
+    <!-- Objectives, collapsible so it can get out of the way on a phone -->
+    <section id="objectives" class="panel">
+      <header id="objHeader">
+        <span class="tag">OBJECTIVES</span>
+        <span id="objCount"></span>
+        <span class="chev">▾</span>
+      </header>
+      <ul id="objList"></ul>
+    </section>
+
+    <!-- Right rail: minimap and the production palette -->
+    <aside id="rail">
+      <div id="minimapWrap">
+        <canvas id="minimap"></canvas>
+      </div>
+      <nav id="tabs">
+        <button data-tab="infantry" class="on">INF</button>
+        <button data-tab="vehicle">VEH</button>
+        <button data-tab="air">AIR</button>
+        <button data-tab="structure">WRK</button>
+      </nav>
+      <div id="palette"></div>
+    </aside>
+
+    <!-- Bottom: current selection and its available orders -->
+    <div id="bottom">
+      <div id="selection"></div>
+      <div id="cmdbar"></div>
+    </div>
+    <button id="btnEndTurn" class="tappable">
+      <span class="lbl">END TURN</span>
+      <span class="sub" id="endTurnHint"></span>
+    </button>
+
+    <div id="notices"></div>
+    <div id="hint"></div>
+  </div>
+
+  <div id="overlay"></div>
+  <div id="rotate">
+    <div class="card">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="18" y="6" width="28" height="52" rx="4"/><path d="M8 40a24 24 0 0048 0" class="ln"/></svg>
+      <p>Turn your device sideways</p>
+      <small>An RTS wants the width &mdash; but it plays fine either way.</small>
+      <button class="btn" id="btnPortrait">PLAY IN PORTRAIT</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
