@@ -54,7 +54,9 @@ export class Game {
 
     const start = MAP01.playerStart;
     this.camera.centerOn(start.tx * TILE, start.ty * TILE);
-    this.camera.zoom = 0.82;
+    // A narrow (portrait) viewport needs to start further out to show any
+    // useful amount of ground.
+    this.camera.zoom = window.innerWidth < 640 ? 0.62 : 0.82;
     this._minimapTimer = 0;
     this._heat = 0;
     this._fpsAccum = 0;

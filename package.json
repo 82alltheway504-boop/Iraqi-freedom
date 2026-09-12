@@ -18,7 +18,8 @@
     "test:pwa": "node tools/pwatest.mjs",
     "build:artifact": "node tools/build-artifact.mjs",
     "bundle": "node tools/bundle.mjs",
-    "test:bundle": "node tools/bundletest.mjs"
+    "test:bundle": "node tools/bundletest.mjs",
+    "test:portrait": "node tools/portraittest.mjs"
   },
   "engines": {
     "node": ">=18"

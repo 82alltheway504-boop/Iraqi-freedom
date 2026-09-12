@@ -433,18 +433,95 @@ html, body {
   display: none;
   place-content: center;
   justify-items: center;
-  gap: 10px;
-  background: #0b0e08;
+  background: rgba(6,8,5,0.93);
   text-align: center;
   z-index: 40;
   padding: 24px;
 }
-#rotate svg { width: 74px; height: 74px; fill: none; stroke: var(--gold); stroke-width: 3; }
+#rotate .card {
+  display: grid; justify-items: center; gap: 9px;
+  background: linear-gradient(180deg, rgba(24,29,18,0.98), rgba(16,20,13,0.98));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 22px 18px;
+  max-width: 330px;
+}
+#rotate svg { width: 58px; height: 58px; fill: none; stroke: var(--gold); stroke-width: 3; }
 #rotate svg .ln { stroke-dasharray: 4 5; }
-#rotate p { margin: 0; font-size: 16px; font-weight: 700; }
-#rotate small { color: var(--dim); }
+#rotate p { margin: 0; font-size: 15px; font-weight: 700; }
+#rotate small { color: var(--dim); line-height: 1.4; }
+#rotate .btn { margin-top: 4px; min-width: 0; width: 100%; }
+/* Shown only in portrait, and only until the player dismisses it. Blocking
+   the game outright behind an orientation check strands anyone whose browser
+   or embedding frame will not rotate. */
 @media (orientation: portrait) and (max-width: 820px) {
-  #rotate { display: grid; }
+  body:not(.portrait-ok) #rotate { display: grid; }
+}
+
+/* --- portrait layout ------------------------------------------------------
+   The rail turns into a horizontal strip along the bottom with a
+   side-scrolling palette, and the minimap floats top-right. Tighter than
+   landscape, but genuinely playable rather than a dead end. */
+@media (orientation: portrait) and (max-width: 820px) {
+  #rail {
+    left: calc(var(--safeL) + 6px);
+    right: calc(var(--safeR) + 6px);
+    top: auto;
+    bottom: calc(var(--safeB) + 6px);
+    width: auto;
+    height: 96px;
+    flex-direction: row;
+    gap: 5px;
+  }
+  #minimapWrap {
+    position: fixed;
+    top: calc(var(--safeT) + 42px);
+    right: calc(var(--safeR) + 8px);
+    width: 96px;
+    z-index: 6;
+  }
+  #tabs {
+    flex: 0 0 52px;
+    flex-direction: column;
+    gap: 3px;
+  }
+  #tabs button { padding: 0; font-size: 8px; }
+  #palette {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 60px;
+    grid-template-rows: 1fr;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0;
+  }
+  #bottom {
+    left: calc(var(--safeL) + 8px);
+    right: calc(var(--safeR) + 8px);
+    bottom: calc(var(--safeB) + 108px);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  #selection { max-width: 100%; }
+  #objectives {
+    width: min(200px, calc(100% - 118px));
+    top: calc(var(--safeT) + 42px);
+  }
+  #objList { max-height: 26vh; }
+  #notices { width: min(300px, 80vw); top: calc(var(--safeT) + 42px); }
+  #hint { bottom: calc(var(--safeB) + 210px); }
+  /* The top bar has to fit ~393 px. Trim it in priority order: the elapsed
+     clock goes first (it is repeated on the pause sheet), then the Local
+     Support label, then general padding. The sound and menu buttons must
+     never be pushed off the edge. */
+  #topbar { gap: 4px; padding-left: calc(var(--safeL) + 5px); padding-right: calc(var(--safeR) + 5px); }
+  .stat { padding: 2px 6px; font-size: 11.5px; gap: 4px; }
+  .gi { width: 13px; height: 13px; }
+  .iconbtn { width: 30px; height: 28px; flex: 0 0 auto; }
+  #statClock { display: none; }
+  #statSupport .lbl { display: none; }
+  #statSupport .meter { width: 30px; }
 }
 
 /* Short screens: a phone held in landscape is only ~390 px tall, so the

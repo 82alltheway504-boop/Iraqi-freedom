@@ -6,6 +6,20 @@ import { showBriefing } from './ui/overlays.js';
 function boot() {
   const game = new Game();
   window.game = game;                     // handy from a console, harmless
+
+  // The orientation nudge is advice, not a gate: some browsers and embedded
+  // frames never report landscape, and stranding the player there is worse
+  // than a cramped layout.
+  const dismiss = document.getElementById('btnPortrait');
+  if (dismiss) {
+    dismiss.addEventListener('click', () => {
+      document.body.classList.add('portrait-ok');
+      game.audio.uiTap();
+      // The viewport just changed size in effect; re-fit everything.
+      window.dispatchEvent(new Event('resize'));
+    });
+  }
+
   showBriefing(game, () => game.begin());
 }
 

@@ -80,9 +80,12 @@
 
   <div id="overlay"></div>
   <div id="rotate">
-    <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="18" y="6" width="28" height="52" rx="4"/><path d="M8 40a24 24 0 0048 0" class="ln"/></svg>
-    <p>Turn your device sideways</p>
-    <small>This one wants the width.</small>
+    <div class="card">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="18" y="6" width="28" height="52" rx="4"/><path d="M8 40a24 24 0 0048 0" class="ln"/></svg>
+      <p>Turn your device sideways</p>
+      <small>An RTS wants the width &mdash; but it plays fine either way.</small>
+      <button class="btn" id="btnPortrait">PLAY IN PORTRAIT</button>
+    </div>
   </div>
 </div>
 <script type="module" src="src/main.js"></script>

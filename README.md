@@ -73,6 +73,13 @@ Designed so that one tap always does the obvious thing.
 | Double tap a unit | Select every unit of that type on screen |
 | Minimap | Tap or drag to jump the camera |
 
+Landscape is the better way to play an RTS, and the game says so on a portrait
+phone — but it says it as a dismissible card, not a wall. Some browsers and
+embedded frames never report landscape, and stranding the player behind an
+orientation check is worse than a cramped layout. In portrait the production
+rail becomes a side-scrolling strip along the bottom, the minimap floats
+top-right, and the objectives list starts folded.
+
 Mouse and keyboard work too: left-drag box-selects, right-click orders, the
 wheel zooms, `A` attack-move, `F` force fire, `G` garrison, `C` capture,
 `R` repair, `H` hold, `S` stop, `Tab` shows weapon ranges, `Ctrl+1..9` sets a
@@ -135,6 +142,7 @@ npm test             # 24 simulation checks + a full mission playthrough
 npm run test:browser # 5 viewports, the portrait nudge, and offline play
 npm run test:touch   # real touch gestures: tap, drag, long press, pinch
 npm run test:pwa     # installability: manifest, icons, SW scope, offline
+npm run test:portrait # portrait and small-frame layout and playability
 npm run perf         # measures real frame rate in Chromium at iPhone size
 npm run shots        # captures screenshots of the running game
 npm run balance      # regenerates the balance tables in docs/DESIGN.md

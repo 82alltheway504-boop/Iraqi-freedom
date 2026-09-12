@@ -72,6 +72,10 @@ export class Hud {
   _build() {
     $('hud').hidden = false;
 
+    // On a narrow screen the objectives list would cover most of the
+    // battlefield, so it starts folded. The header taps open.
+    if (window.innerWidth < 640) $('objectives').classList.add('collapsed');
+
     // Objectives panel collapses on tap — screen space is scarce on a phone.
     $('objHeader').addEventListener('click', () => {
       $('objectives').classList.toggle('collapsed');
